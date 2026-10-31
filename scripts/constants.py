@@ -114,6 +114,23 @@ def update_environment():
 def get_env() -> Environment:
     return project_env
 
+class EnvConfigError(Exception):
+    """Required environment variables are missing or empty."""
+
+REGISTRY_ENV_VARS = {
+    'REGISTRY_HOSTNAME': 'registry_hostname',
+    'REGISTRY_NAMESPACE': 'registry_namespace',
+    'REGISTRY_USERNAME': 'registry_username',
+    'REGISTRY_PASSWORD': 'registry_password',
+}
+
+def check_registry_config():
+    missing = [key for key, attr in REGISTRY_ENV_VARS.items() if not getattr(project_env, attr)]
+    if missing:
+        raise EnvConfigError(
+            f'Registry is not configured. Fill in {", ".join(missing)} in {PROD_ENV_FILE}'
+        )
+
 def get_docker_image_prefix():
     return f'{project_env.registry_hostname}/{project_env.registry_namespace}/{project_env.project_name}'
 

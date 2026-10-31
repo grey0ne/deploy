@@ -8,7 +8,7 @@ from scripts.commands import (
 )
 from scripts.deploy_production import deploy_production
 from scripts.compose.generate import generate_dev_compose_files
-from scripts.constants import update_environment, PROD_ENV_FILE, DEV_ENV_FILE
+from scripts.constants import update_environment, BASE_ENV_FILE, PROD_ENV_FILE, DEV_ENV_FILE
 from typing import Callable, Literal
 
 
@@ -24,13 +24,25 @@ def list_commands():
     for command_data in COMMANDS:
         print(f"- {command_data.keywords[0]}: {command_data.description}")
 
-def load_env(env_file: str):
+def read_env_file(env_file: str) -> dict[str, str]:
+    result = {}
     with open(env_file, 'r') as file:
         for line in file:
             if line.startswith('#') or not line.strip():
                 continue
             key, value = line.strip().split('=', 1)
-            os.environ[key] = value
+            result[key] = value
+    return result
+
+def load_env(env_file: str):
+    # The dc script sources env.dev before running any command, so variables from
+    # the other environment must be dropped and env.base re-applied before env_file
+    for other_env_file in (DEV_ENV_FILE, PROD_ENV_FILE):
+        if other_env_file != env_file and os.path.exists(other_env_file):
+            for key in read_env_file(other_env_file):
+                os.environ.pop(key, None)
+    os.environ.update(read_env_file(BASE_ENV_FILE))
+    os.environ.update(read_env_file(env_file))
     update_environment()
 
 
