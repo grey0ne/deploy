@@ -5,8 +5,7 @@ ENV POETRY_VIRTUALENVS_CREATE=false
 
 WORKDIR /app
 COPY install-dependencies.sh /app/
-RUN apt-get update
-RUN bash /app/install-dependencies.sh
+RUN apt-get update && bash /app/install-dependencies.sh && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml /app/
 
 RUN python -mpip install --upgrade pip --root-user-action=ignore
