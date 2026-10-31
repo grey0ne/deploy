@@ -71,7 +71,7 @@ is_in_list() {
     return 1  # false
 }
 
-PY_COMMANDS=("initprod" "deploybalancer" "deployprod" "s3backupprod" "s3restoreprod" "s3backupdev" "s3restoredev" "s3createdevbucket" "update_dev_nginx" "generate_compose")
+PY_COMMANDS=("initprod" "deploybalancer" "deployprod" "certprod" "s3backupprod" "s3restoreprod" "s3backupdev" "s3restoredev" "s3createdevbucket" "update_dev_nginx" "generate_compose")
 
 PROD_DIR="/app/$PROJECT_NAME"
 DOCKER_IMAGE_PREFIX="$REGISTRY_HOSTNAME/$REGISTRY_NAMESPACE/$PROJECT_NAME"

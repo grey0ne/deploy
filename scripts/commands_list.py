@@ -3,7 +3,7 @@ import os
 from scripts.printing import print_status
 from scripts.do_init import init_do_infra
 from scripts.commands import (
-    setup_balancer, update_dev_nginx, production_setup, create_s3_backup,
+    setup_balancer, update_dev_nginx, production_setup, issue_prod_certs, create_s3_backup,
     restore_s3_backup, create_s3_dev_bucket
 )
 from scripts.deploy_production import deploy_production
@@ -57,6 +57,12 @@ COMMANDS: list[Command] = [
         keywords=["initinfra",],
         description="Initialize the infrastructure on Digital Ocean",
         func=init_do_infra,
+        env='prod'
+    ),
+    Command(
+        keywords=["certprod", "issue_certs"],
+        description="Issue missing SSL certificates for production domains",
+        func=issue_prod_certs,
         env='prod'
     ),
     Command(

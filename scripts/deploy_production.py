@@ -3,7 +3,7 @@ from scripts.shell_commands import (
 )
 from scripts.commands import (
     copy_to_remote, get_image_hash, update_swarm,
-    collect_static, upload_images, login_registry, build_images
+    collect_static, upload_images, login_registry, build_images, issue_prod_certs
 )
 from scripts.helpers import run_command, run_remote_commands
 from scripts.printing import print_status
@@ -48,6 +48,7 @@ def update_prod_nginx():
 
 def deploy_production():
     check_registry_config()
+    issue_prod_certs()
     config = get_deploy_config()
     new_version = update_version()
 

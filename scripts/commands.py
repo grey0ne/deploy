@@ -1,13 +1,15 @@
 from scripts.constants import (
-    project_env, get_docker_image_prefix, DEPLOY_DIR, BACKEND_DIR, FASTAPI_DIR,
+    project_env, get_docker_image_prefix, EnvConfigError, DEPLOY_DIR, BACKEND_DIR, FASTAPI_DIR,
     BASE_ENV_FILE, DEV_ENV_FILE, COMPOSE_DIR, PROD_ENV_FILE, SPA_DIR,
 )
 from scripts.compose.renderer import render_prod_balancer_compose
 from scripts.compose.services import GENERATED_DIR
 from scripts.deploy_config import get_deploy_config
-from scripts.helpers import run_command, run_remote_commands
+from scripts.helpers import run_command, run_remote_commands, remote_command_succeeds
 from scripts.printing import print_status
-from scripts.shell_commands import RELOAD_NGINX, get_login_registry_script, get_gen_fake_certs_script, SETUP_DOCKER
+from scripts.shell_commands import (
+    PRINT_COMMAND, RELOAD_NGINX, get_login_registry_script, get_gen_fake_certs_script, get_init_balancer_script, SETUP_DOCKER
+)
 from scripts.nginx.configuration import (
     render_dev_nginx_conf, render_centrifugo_dev_nginx_conf, render_extra_dev_domain_nginx_conf
 )
@@ -45,9 +47,20 @@ def reload_prod_nginx():
     print_status("Reloading nginx")
     run_remote_commands([RELOAD_NGINX, ])
 
+STACK_DEPLOY_TIMEOUT = 300
+
 def update_swarm(compose_file: str, stack_name: str):
     print_status(f"Updating {stack_name} swarm")
-    STACK_COMMAND = f"docker stack config -c {compose_file} | docker stack deploy --with-registry-auth --detach=false -c - {stack_name}"
+    STACK_COMMAND = f"""
+    {PRINT_COMMAND}
+    if ! timeout {STACK_DEPLOY_TIMEOUT} sh -c "docker stack config -c {compose_file} | docker stack deploy --with-registry-auth --detach=false -c - {stack_name}"; then
+        print_error "Stack {stack_name} did not start within {STACK_DEPLOY_TIMEOUT}s"
+        for SERVICE in $(docker stack services -q {stack_name}); do
+            docker service ps --no-trunc --format '{{{{.Name}}}}: {{{{.CurrentState}}}} {{{{.Error}}}}' $SERVICE | head -n 5
+            timeout 10 docker service logs --tail 20 $SERVICE
+        done
+    fi
+    """
     run_remote_commands([STACK_COMMAND, ])
     print_status("Prune images")
     run_remote_commands(['docker image prune -f',])
@@ -59,6 +72,8 @@ def setup_balancer():
         f"mkdir -p /app/balancer",
         f"mkdir -p /app/balancer/conf",
     ])
+    print_status("Preparing swarm, network and certificates for balancer")
+    run_remote_commands([get_init_balancer_script()])
     copy_to_remote(f'{GENERATED_DIR}/prod_balancer.yml', '/app/balancer/compose.yml')
     copy_to_remote(f'{DEPLOY_DIR}/nginx/conf/balancer.conf', '/app/balancer/conf/default.conf')
     update_swarm('/app/balancer/compose.yml', 'balancer')
@@ -172,17 +187,40 @@ def setup_prod_domain_cert(domain: str):
     run_remote_commands([ SETUP_CERTBOT_COMMAND, ])
 
 
-def setup_prod_certs():
+def get_prod_cert_domains() -> list[str]:
+    domains = [project_env.project_domain, *project_env.extra_domains]
+    if get_deploy_config().centrifugo_enabled:
+        domains.append(f"centrifugo.{project_env.project_domain}")
+    return domains
+
+def get_missing_prod_certs() -> list[str]:
+    return [
+        domain for domain in get_prod_cert_domains()
+        if not remote_command_succeeds(f"test -f /app/certbot/certificates/live/{domain}/fullchain.pem")
+    ]
+
+def issue_prod_certs():
+    missing = get_missing_prod_certs()
+    if not missing:
+        print_status("All certificates are present")
+        return
     run_remote_commands([
         f"mkdir -p /app/certbot/certificates",
         f"mkdir -p /app/certbot/challenge",
     ])
-    setup_prod_domain_cert(project_env.project_domain)
-    for domain in project_env.extra_domains:
+    for domain in missing:
         setup_prod_domain_cert(domain)
-    if get_deploy_config().centrifugo_enabled:
-        setup_prod_domain_cert(f"centrifugo.{project_env.project_domain}")
+    # The balancer is shared between projects: a config pointing to a missing certificate
+    # stops nginx from starting and takes down every site on the server
+    still_missing = get_missing_prod_certs()
+    if still_missing:
+        raise EnvConfigError(
+            f'Failed to issue certificates for {", ".join(still_missing)}. '
+            f'Check that DNS records point to the server and balancer nginx is running'
+        )
 
+def setup_prod_certs():
+    issue_prod_certs()
     print_status(f"Copying fake certs to dummy folder")
     run_remote_commands([ get_gen_fake_certs_script(), ])
     reload_prod_nginx()

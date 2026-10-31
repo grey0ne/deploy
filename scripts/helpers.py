@@ -1,4 +1,3 @@
-from subprocess import PIPE
 import subprocess
 import fileinput
 
@@ -30,9 +29,12 @@ def run_remote_commands(commands: list[str]):
     if project_env.verbose:
         for cmd in commands:
             print(f"Running command: {cmd}")
-    p = subprocess.run(ssh_command, stdout=PIPE, input=command, encoding='utf8')
-    if p.stdout:
-        print(p.stdout)
+    # Output is not captured so progress of long remote commands is visible
+    subprocess.run(ssh_command, input=command, encoding='utf8')
+
+def remote_command_succeeds(command: str) -> bool:
+    ssh_command = ['ssh', f'root@{project_env.project_domain}', command]
+    return subprocess.run(ssh_command, stdout=subprocess.DEVNULL).returncode == 0
 
 def envsubst(from_file: str, to_file: str, variables: list[str] = []):
     if variables:
