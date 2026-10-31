@@ -91,10 +91,10 @@ elif [ $1 = "logsprod" ]; then
     source $PROD_ENV
     ssh root@$PROJECT_DOMAIN "docker service logs ${PROJECT_NAME}_${PROJECT_NAME}-${2}"
 elif [ $1 = "gencerts" ]; then
-    python3 $DEPLOY_DIR/generate_dev_certificates.py
+    python3.14 $DEPLOY_DIR/generate_dev_certificates.py
     $BALANCER_COMPOSE restart
 elif is_in_list $1 "${PY_COMMANDS[@]}"; then
-    python3 $DEPLOY_DIR/launch_command.py $1
+    python3.14 $DEPLOY_DIR/launch_command.py $1
 elif [ $1 = "updatetemplate" ]; then
     source $PROD_ENV
     $PROJECT_TEMPLATE_DIR/update_template.sh -t django_nextjs_template -n $PROJECT_NAME -r $PROJECT_DIR -d $PROJECT_DOMAIN
