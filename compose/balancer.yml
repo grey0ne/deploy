@@ -2,7 +2,7 @@ name: balancer
 
 services:
   nginx:
-    image: "nginx:1.27.5-alpine-slim"
+    image: "nginx:1.30.6-alpine-slim"
     container_name: nginx
     environment:
       NGINX_ENTRYPOINT_LOCAL_RESOLVERS: yes

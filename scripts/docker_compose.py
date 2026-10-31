@@ -40,7 +40,7 @@ CELERY_SERVICE: str = \
 
 CENTRIFUGO_SERVICE: str = \
 """  {PROJECT_NAME}-centrifugo:
-    image: "centrifugo/centrifugo:v6.2"
+    image: "centrifugo/centrifugo:v6.10.2"
     command: centrifugo
     env_file:
       - /app/{PROJECT_NAME}/env.base
@@ -53,7 +53,7 @@ CENTRIFUGO_SERVICE: str = \
 
 REDIS_SERVICE: str = \
 """  {PROJECT_NAME}-redis:
-    image: "redis:8.2.2-alpine"
+    image: "redis:8.10.3-alpine"
     networks:
       - prodnet
 """

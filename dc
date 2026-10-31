@@ -68,14 +68,14 @@ elif [ $1 = "generatetypes" ]; then
     $DEV_COMPOSE exec nextjs npx -y openapi-typescript http://${PROJECT_NAME}-django:8000/api/openapi.json --output api/apiTypes.ts
 elif [ $1 = "dumpprod" ]; then
     source $PROD_ENV
-    ssh root@$PROJECT_DOMAIN "docker run --rm -i -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.4-alpine pg_dump -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT $DATABASE_NAME" > backup/$PROJECT_NAME.sql
+    ssh root@$PROJECT_DOMAIN "docker run --rm -i -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine pg_dump -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT $DATABASE_NAME" > backup/$PROJECT_NAME.sql
 elif [ $1 = "dumpdev" ]; then
     $DEV_COMPOSE exec postgres pg_dump --username=$PROJECT_NAME $PROJECT_NAME > backup/${PROJECT_NAME}dev.sql
 elif [ $1 = "restoreprod" ]; then
     source $PROD_ENV
-    ssh root@$PROJECT_DOMAIN "docker run --rm -i -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.4-alpine psql -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT -d $2" < $3
+    ssh root@$PROJECT_DOMAIN "docker run --rm -i -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine psql -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT -d $2" < $3
 elif [ $1 = "restoredev" ]; then
-    docker run --rm -i --network=$PROJECT_NAME -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.4-alpine psql -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT $DATABASE_NAME < backup/${PROJECT_NAME}dev.sql
+    docker run --rm -i --network=$PROJECT_NAME -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine psql -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT $DATABASE_NAME < backup/${PROJECT_NAME}dev.sql
 elif [ $1 = "deploystage" ]; then
     source $DEPLOY_DIR/env.stage
     $DEPLOY_DIR/deploy.sh $DEPLOY_DIR/env.stage

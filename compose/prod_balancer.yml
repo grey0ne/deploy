@@ -1,7 +1,7 @@
 
 services:
   nginx:
-    image: "nginx:1.27.5-alpine-slim"
+    image: "nginx:1.30.6-alpine-slim"
     volumes:
       - /app/certbot/certificates:/etc/letsencrypt
       - /app/certbot/challenge:/var/www/certbot

@@ -52,7 +52,7 @@ services:
 
 
   postgres:
-    image: "postgres:16.4-alpine"
+    image: "postgres:16.15-alpine"
     container_name: ${PROJECT_NAME}-postgres
     domainname: ${PROJECT_NAME}-postgres
     environment:
@@ -81,7 +81,7 @@ services:
       - celery
 
   centrifugo:
-    image: "centrifugo/centrifugo:v6.2"
+    image: "centrifugo/centrifugo:v6.10.2"
     container_name: ${PROJECT_NAME}-centrifugo
     domainname: ${PROJECT_NAME}-centrifugo
     command: centrifugo
@@ -95,7 +95,7 @@ services:
       - centrifugo
 
   redis:
-    image: "redis:8.2.2-alpine"
+    image: "redis:8.10.3-alpine"
     container_name: ${PROJECT_NAME}-redis
     domainname: ${PROJECT_NAME}-redis
     volumes:
