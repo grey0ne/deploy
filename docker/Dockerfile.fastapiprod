@@ -1,0 +1,17 @@
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /deps
+
+COPY shared /deps/shared
+RUN pip install --upgrade pip --root-user-action=ignore \
+    && pip install /deps/shared --root-user-action=ignore
+
+COPY proxy /deps/proxy
+RUN pip install /deps/proxy --root-user-action=ignore
+
+WORKDIR /deps/proxy
+
+# worker count overridden by compose command in production
+CMD ["uvicorn", "proxy.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]

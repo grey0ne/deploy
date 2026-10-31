@@ -5,6 +5,7 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__
 DEPLOY_DIR = os.path.join(PROJECT_DIR, 'deploy')
 ENV_DIR = os.path.join(PROJECT_DIR, 'environment')
 BACKEND_DIR = os.path.join(PROJECT_DIR, 'backend')
+FASTAPI_DIR = PROJECT_DIR
 COMPOSE_DIR = os.path.join(DEPLOY_DIR, 'compose')
 SPA_DIR = os.path.join(PROJECT_DIR, 'spa')
 VERSION_FILE = os.path.join(ENV_DIR, 'version')
@@ -104,9 +105,11 @@ project_env = read_env()
 
 def update_environment():
     global project_env
+    from scripts.deploy_config import reset_deploy_config
     new_env = read_env()
     for field in fields(Environment):
         setattr(project_env, field.name, getattr(new_env, field.name))
+    reset_deploy_config()
 
 def get_env() -> Environment:
     return project_env

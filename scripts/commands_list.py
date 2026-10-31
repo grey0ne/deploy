@@ -7,6 +7,7 @@ from scripts.commands import (
     restore_s3_backup, create_s3_dev_bucket
 )
 from scripts.deploy_production import deploy_production
+from scripts.compose.generate import generate_dev_compose_files
 from scripts.constants import update_environment, PROD_ENV_FILE, DEV_ENV_FILE
 from typing import Callable, Literal
 
@@ -51,6 +52,12 @@ COMMANDS: list[Command] = [
         description="Set up the load balancer on Digital Ocean",
         func=setup_balancer,
         env='prod'
+    ),
+    Command(
+        keywords=["generate_compose",],
+        description="Generate docker compose files from deploy.json",
+        func=generate_dev_compose_files,
+        env='dev'
     ),
     Command(
         keywords=["update_dev_nginx",],

@@ -1,1 +1,3 @@
 *.pyc
+compose/generated/
+compose/prod.yml

@@ -1,0 +1,16 @@
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /deps
+
+COPY shared /deps/shared
+RUN pip install --upgrade pip --root-user-action=ignore \
+    && pip install -e /deps/shared --root-user-action=ignore
+
+COPY proxy /deps/proxy
+RUN pip install -e /deps/proxy --root-user-action=ignore
+
+WORKDIR /deps/proxy
+
+CMD ["uvicorn", "proxy.main:create_app", "--factory", "--reload", "--host", "0.0.0.0", "--port", "8080"]

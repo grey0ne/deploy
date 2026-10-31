@@ -30,4 +30,8 @@ WORKDIR /app
 COPY backend/pyproject.toml /app/
 RUN poetry install --no-interaction --no-ansi
 
+# Keep container running so the IDE can attach; default python:*-slim CMD is "python3" (REPL),
+# which can cause the devcontainer to hang when Cursor/VS Code tries to attach.
 ENV NODE_ENV=development
+
+CMD ["sleep", "infinity"]

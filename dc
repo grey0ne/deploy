@@ -7,12 +7,7 @@ PROJECT_DIR=$(pwd)
 DEPLOY_DIR="$PROJECT_DIR/deploy"
 ENV_DIR="$PROJECT_DIR/environment"
 PROD_ENV="$ENV_DIR/env.prod"
-
-DEV_COMPOSE="docker-compose -f $DEPLOY_DIR/compose/dev.yml --env-file=$ENV_DIR/env.base --env-file=$ENV_DIR/env.dev"
-BALANCER_COMPOSE="docker-compose -f $DEPLOY_DIR/compose/balancer.yml"
-
-DEV_SUPERUSER_PASSWORD="devpass"
-PROJECT_TEMPLATE_DIR="$HOME/projects/project_template"
+GENERATED_COMPOSE_DIR="$DEPLOY_DIR/compose/generated"
 
 source $ENV_DIR/env.base
 source $ENV_DIR/env.dev
@@ -20,6 +15,33 @@ source $ENV_DIR/env.dev
 if [ -f "$PROJECT_DIR/.env" ]; then
     source $PROJECT_DIR/.env
 fi
+
+set +a
+
+require_deploy_json() {
+    if [ ! -f "$PROJECT_DIR/deploy.json" ]; then
+        echo "Error: deploy.json is required but was not found." >&2
+        echo "  Expected path: $PROJECT_DIR/deploy.json" >&2
+        echo "  Create deploy.json in the project root. See deploy/README.md for examples." >&2
+        exit 1
+    fi
+}
+
+require_deploy_json
+
+generate_compose_files() {
+    PYTHONPATH="$DEPLOY_DIR" python3.14 "$DEPLOY_DIR/launch_command.py" generate_compose
+}
+
+generate_compose_files
+
+STACK=$(PYTHONPATH="$DEPLOY_DIR" python3.14 -c "from scripts.deploy_config import get_deploy_config; print(get_deploy_config().stack)")
+
+DEV_COMPOSE="docker-compose -f $GENERATED_COMPOSE_DIR/dev.yml --env-file=$ENV_DIR/env.base --env-file=$ENV_DIR/env.dev"
+BALANCER_COMPOSE="docker-compose -f $GENERATED_COMPOSE_DIR/dev_balancer.yml"
+
+DEV_SUPERUSER_PASSWORD="devpass"
+PROJECT_TEMPLATE_DIR="$HOME/projects/project_template"
 
 is_in_list() {
     local target="$1"
@@ -35,7 +57,7 @@ is_in_list() {
     return 1  # false
 }
 
-PY_COMMANDS=("initprod" "deploybalancer" "deployprod" "s3backupprod" "s3restoreprod" "s3backupdev" "s3restoredev" "s3createdevbucket" "update_dev_nginx")
+PY_COMMANDS=("initprod" "deploybalancer" "deployprod" "s3backupprod" "s3restoreprod" "s3backupdev" "s3restoredev" "s3createdevbucket" "update_dev_nginx" "generate_compose")
 
 PROD_DIR="/app/$PROJECT_NAME"
 DOCKER_IMAGE_PREFIX="$REGISTRY_HOSTNAME/$REGISTRY_NAMESPACE/$PROJECT_NAME"
@@ -44,8 +66,12 @@ if [ $1 = "django" ]; then
     $DEV_COMPOSE run --rm django python manage.py "${@:2}"
 elif [ $1 = "rebuild" ]; then
     $DEV_COMPOSE down
-    $DEV_COMPOSE build nextjs django
-    $DEV_COMPOSE run --rm -i nextjs sh -c "rm -rf node_modules package-lock.json && npm install"
+    if [ "$STACK" = "fastapi" ]; then
+        $DEV_COMPOSE build fastapi
+    else
+        $DEV_COMPOSE build nextjs django
+        $DEV_COMPOSE run --rm -i nextjs sh -c "rm -rf node_modules package-lock.json && npm install"
+    fi
     $DEV_COMPOSE up -d
 elif [ $1 = "up" ]; then
     $BALANCER_COMPOSE up -d
@@ -53,7 +79,11 @@ elif [ $1 = "up" ]; then
 elif [ $1 = "sh" ]; then
     $DEV_COMPOSE exec $2 bash
 elif [ $1 = "test" ]; then
-    $DEV_COMPOSE run --rm django pytest
+    if [ "$STACK" = "fastapi" ]; then
+        $DEV_COMPOSE run --rm fastapi pytest
+    else
+        $DEV_COMPOSE run --rm django pytest
+    fi
 elif [ $1 = "format" ]; then
     $DEV_COMPOSE run --rm django sh -c 'isort . && black .'
 elif [ $1 = "tmux" ]; then
@@ -67,12 +97,16 @@ elif [ $1 = "runtest" ]; then
 elif [ $1 = "generatetypes" ]; then
     $DEV_COMPOSE exec nextjs npx -y openapi-typescript http://${PROJECT_NAME}-django:8000/api/openapi.json --output api/apiTypes.ts
 elif [ $1 = "dumpprod" ]; then
+    set -a
     source $PROD_ENV
+    set +a
     ssh root@$PROJECT_DOMAIN "docker run --rm -i -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine pg_dump -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT $DATABASE_NAME" > backup/$PROJECT_NAME.sql
 elif [ $1 = "dumpdev" ]; then
     $DEV_COMPOSE exec postgres pg_dump --username=$PROJECT_NAME $PROJECT_NAME > backup/${PROJECT_NAME}dev.sql
 elif [ $1 = "restoreprod" ]; then
+    set -a
     source $PROD_ENV
+    set +a
     ssh root@$PROJECT_DOMAIN "docker run --rm -i -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine psql -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT -d $2" < $3
 elif [ $1 = "restoredev" ]; then
     docker run --rm -i --network=$PROJECT_NAME -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine psql -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT $DATABASE_NAME < backup/${PROJECT_NAME}dev.sql
@@ -80,23 +114,34 @@ elif [ $1 = "deploystage" ]; then
     source $DEPLOY_DIR/env.stage
     $DEPLOY_DIR/deploy.sh $DEPLOY_DIR/env.stage
 elif [ $1 = "updatenginx" ]; then
-    python3 $DEPLOY_DIR/launch_command.py update_dev_nginx
+    PYTHONPATH="$DEPLOY_DIR" python3.14 $DEPLOY_DIR/launch_command.py update_dev_nginx
     $BALANCER_COMPOSE restart
 elif [ $1 = "nginx" ]; then
     $BALANCER_COMPOSE "${@:2}"
-elif [ $1 = "djangoprod" ]; then
+elif [ $1 = "fastapiprod" ]; then
+    set -a
     source $PROD_ENV
+    set +a
+    ssh root@$PROJECT_DOMAIN "docker run --rm -i --env-file=$PROD_DIR/env.base --env-file=$PROD_DIR/env $DOCKER_IMAGE_PREFIX-fastapi ${@:2}"
+elif [ $1 = "djangoprod" ]; then
+    set -a
+    source $PROD_ENV
+    set +a
     ssh root@$PROJECT_DOMAIN "docker run --rm -i --env-file=$PROD_DIR/env.base --env-file=$PROD_DIR/env $DOCKER_IMAGE_PREFIX-django python manage.py ${@:2}"
 elif [ $1 = "logsprod" ]; then
+    set -a
     source $PROD_ENV
+    set +a
     ssh root@$PROJECT_DOMAIN "docker service logs ${PROJECT_NAME}_${PROJECT_NAME}-${2}"
 elif [ $1 = "gencerts" ]; then
     python3.14 $DEPLOY_DIR/generate_dev_certificates.py
     $BALANCER_COMPOSE restart
 elif is_in_list $1 "${PY_COMMANDS[@]}"; then
-    python3.14 $DEPLOY_DIR/launch_command.py $1
+    PYTHONPATH="$DEPLOY_DIR" python3.14 $DEPLOY_DIR/launch_command.py $1
 elif [ $1 = "updatetemplate" ]; then
+    set -a
     source $PROD_ENV
+    set +a
     $PROJECT_TEMPLATE_DIR/update_template.sh -t django_nextjs_template -n $PROJECT_NAME -r $PROJECT_DIR -d $PROJECT_DOMAIN
 elif [ $1 = "updatesubmodules" ]; then
     git submodule status

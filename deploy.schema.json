@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Deploy configuration",
+  "type": "object",
+  "properties": {
+    "stack": {
+      "type": "string",
+      "enum": ["django_nextjs", "fastapi"]
+    },
+    "services": {
+      "type": "object",
+      "properties": {
+        "celery": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "centrifugo": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "dev": {
+      "type": "object",
+      "properties": {
+        "postgres": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "minio": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "django": {
+      "type": "object",
+      "properties": {
+        "worker_count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "fastapi": {
+      "type": "object",
+      "properties": {
+        "worker_count": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}
