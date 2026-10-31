@@ -1,7 +1,11 @@
+import os
+
 from scripts.http_request import request
 from scripts.helpers import save_env_option, run_command
 from scripts.printing import print_status, print_warning
 from scripts.constants import project_env, VERSION_FILE
+
+INITIAL_VERSION = '0.0.0'
 
 def sentry_release(version: str):
     if not project_env.sentry_release_token:
@@ -26,8 +30,13 @@ def increment_version(version: str) -> str:
     return '.'.join(version.split('.')[:-1] + [str(last_digit + 1)])
 
 def read_version():
+    if not os.path.exists(VERSION_FILE):
+        print_warning(f'Version file {VERSION_FILE} not found. Creating it with version {INITIAL_VERSION}')
+        with open(VERSION_FILE, 'w') as f:
+            f.write(INITIAL_VERSION)
+        return INITIAL_VERSION
     with open(VERSION_FILE, 'r') as f:
-        return f.read()
+        return f.read().strip()
 
 def save_version(version: str):
     with open(VERSION_FILE, 'w') as f:
@@ -36,7 +45,7 @@ def save_version(version: str):
     save_env_option('NEXT_PUBLIC_VERSION', str(version), create=True)
 
 def commit_version(version: str):
-    run_command(f'git commit environment/version -m "Version {version}"')
+    run_command(f'git add environment/version && git commit environment/version -m "Version {version}"')
 
 def update_version():
     current_version = read_version()
