@@ -48,13 +48,52 @@ def get_init_swarm_script() -> str:
         {JOIN_SWARM}
     """
 
+CREATE_PRODNET = """
+if [ -z "$(docker network ls -q -f name=^prodnet$)" ]; then
+    print_status "Creating prodnet network"
+    docker network create --driver overlay --attachable prodnet
+fi
+"""
+
+# nginx refuses to start without the default_server certificate, and the real one
+# can only be issued by certbot once nginx is serving the acme challenge
+CREATE_DUMMY_CERT = """
+mkdir -p /app/certbot/certificates/live/dummy /app/certbot/challenge
+if [ ! -f /app/certbot/certificates/live/dummy/fullchain.pem ]; then
+    print_status "Generating self-signed dummy certificate"
+    command -v openssl > /dev/null || apt install -y openssl
+    openssl req -x509 -nodes -newkey rsa:2048 -days 3650 -subj "/CN=dummy" \\
+        -keyout /app/certbot/certificates/live/dummy/privkey.pem \\
+        -out /app/certbot/certificates/live/dummy/fullchain.pem
+fi
+"""
+
+def get_init_balancer_script() -> str:
+    return f"""
+        {PRINT_COMMAND}
+        {GET_ADDR}
+        {JOIN_SWARM}
+        {CREATE_PRODNET}
+        {CREATE_DUMMY_CERT}
+    """
+
 RELOAD_NGINX = f"""
-NGINX_CONTAINER=$(docker ps -q -f name=nginx)
+{PRINT_COMMAND}
+for i in $(seq 1 30); do
+    NGINX_CONTAINER=$(docker ps -q -f name=balancer_nginx | head -n 1)
+    [ -n "$NGINX_CONTAINER" ] && break
+    sleep 2
+done
+if [ -z "$NGINX_CONTAINER" ]; then
+    print_error "nginx container is not running. Check: docker service ps balancer_nginx --no-trunc"
+    exit 1
+fi
 docker exec $NGINX_CONTAINER nginx -s reload
 """
 
 def get_gen_fake_certs_script() -> str:
     return f"""
+        rm -rf /app/certbot/certificates/live/dummy
         cp -r /app/certbot/certificates/live/{project_env.project_domain} /app/certbot/certificates/live/dummy
     """
 

@@ -27,7 +27,7 @@ Scripts resolve paths relative to this layout (`scripts/constants.py`) and must 
   - `constants.py` — `Environment` dataclass built from env vars (`project_env`)
   - `deploy_config.py` — loads and validates `deploy.json` (`get_deploy_config()`)
   - `compose/` — compose generation: `services.py` (service definitions + image constants), `renderer.py`, `generate.py`, `yaml_dump.py`
-  - `deploy_production.py` — bump version → build images (`--platform linux/amd64`) → push to registry → git commit version + Sentry release → collectstatic to S3 → render prod compose → copy to server → migrate → `docker stack` update → nginx reload
+  - `deploy_production.py` — check registry config → issue missing SSL certs (same as `certprod`) → bump version → build images (`--platform linux/amd64`) → push to registry → git commit version + Sentry release → collectstatic to S3 → render prod compose → copy to server → migrate → `docker stack` update → nginx reload
   - `docker_compose.py` — writes the prod swarm compose file (via `compose/renderer.py`)
   - `nginx/` — nginx config templates for dev and prod
   - `do_init.py` — DigitalOcean droplet / managed Postgres provisioning

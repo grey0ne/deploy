@@ -18,6 +18,20 @@ fi
 
 set +a
 
+# env.dev is sourced above, so drop its variables before loading env.base + env.prod
+load_prod_env() {
+    unset $(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ENV_DIR/env.dev" | cut -d= -f1)
+    set -a
+    source $ENV_DIR/env.base
+    source $PROD_ENV
+    if [ -f "$PROJECT_DIR/.env" ]; then
+        source $PROJECT_DIR/.env
+    fi
+    set +a
+    PROD_DIR="/app/$PROJECT_NAME"
+    DOCKER_IMAGE_PREFIX="$REGISTRY_HOSTNAME/$REGISTRY_NAMESPACE/$PROJECT_NAME"
+}
+
 require_deploy_json() {
     if [ ! -f "$PROJECT_DIR/deploy.json" ]; then
         echo "Error: deploy.json is required but was not found." >&2
@@ -57,7 +71,7 @@ is_in_list() {
     return 1  # false
 }
 
-PY_COMMANDS=("initprod" "deploybalancer" "deployprod" "s3backupprod" "s3restoreprod" "s3backupdev" "s3restoredev" "s3createdevbucket" "update_dev_nginx" "generate_compose")
+PY_COMMANDS=("initprod" "deploybalancer" "deployprod" "certprod" "s3backupprod" "s3restoreprod" "s3backupdev" "s3restoredev" "s3createdevbucket" "update_dev_nginx" "generate_compose")
 
 PROD_DIR="/app/$PROJECT_NAME"
 DOCKER_IMAGE_PREFIX="$REGISTRY_HOSTNAME/$REGISTRY_NAMESPACE/$PROJECT_NAME"
@@ -97,16 +111,12 @@ elif [ $1 = "runtest" ]; then
 elif [ $1 = "generatetypes" ]; then
     $DEV_COMPOSE exec nextjs npx -y openapi-typescript http://${PROJECT_NAME}-django:8000/api/openapi.json --output api/apiTypes.ts
 elif [ $1 = "dumpprod" ]; then
-    set -a
-    source $PROD_ENV
-    set +a
+    load_prod_env
     ssh root@$PROJECT_DOMAIN "docker run --rm -i -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine pg_dump -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT $DATABASE_NAME" > backup/$PROJECT_NAME.sql
 elif [ $1 = "dumpdev" ]; then
     $DEV_COMPOSE exec postgres pg_dump --username=$PROJECT_NAME $PROJECT_NAME > backup/${PROJECT_NAME}dev.sql
 elif [ $1 = "restoreprod" ]; then
-    set -a
-    source $PROD_ENV
-    set +a
+    load_prod_env
     ssh root@$PROJECT_DOMAIN "docker run --rm -i -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine psql -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT -d $2" < $3
 elif [ $1 = "restoredev" ]; then
     docker run --rm -i --network=$PROJECT_NAME -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine psql -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT $DATABASE_NAME < backup/${PROJECT_NAME}dev.sql
@@ -119,19 +129,13 @@ elif [ $1 = "updatenginx" ]; then
 elif [ $1 = "nginx" ]; then
     $BALANCER_COMPOSE "${@:2}"
 elif [ $1 = "fastapiprod" ]; then
-    set -a
-    source $PROD_ENV
-    set +a
+    load_prod_env
     ssh root@$PROJECT_DOMAIN "docker run --rm -i --env-file=$PROD_DIR/env.base --env-file=$PROD_DIR/env $DOCKER_IMAGE_PREFIX-fastapi ${@:2}"
 elif [ $1 = "djangoprod" ]; then
-    set -a
-    source $PROD_ENV
-    set +a
+    load_prod_env
     ssh root@$PROJECT_DOMAIN "docker run --rm -i --env-file=$PROD_DIR/env.base --env-file=$PROD_DIR/env $DOCKER_IMAGE_PREFIX-django python manage.py ${@:2}"
 elif [ $1 = "logsprod" ]; then
-    set -a
-    source $PROD_ENV
-    set +a
+    load_prod_env
     ssh root@$PROJECT_DOMAIN "docker service logs ${PROJECT_NAME}_${PROJECT_NAME}-${2}"
 elif [ $1 = "gencerts" ]; then
     python3.14 $DEPLOY_DIR/generate_dev_certificates.py
@@ -139,9 +143,7 @@ elif [ $1 = "gencerts" ]; then
 elif is_in_list $1 "${PY_COMMANDS[@]}"; then
     PYTHONPATH="$DEPLOY_DIR" python3.14 $DEPLOY_DIR/launch_command.py $1
 elif [ $1 = "updatetemplate" ]; then
-    set -a
-    source $PROD_ENV
-    set +a
+    load_prod_env
     $PROJECT_TEMPLATE_DIR/update_template.sh -t django_nextjs_template -n $PROJECT_NAME -r $PROJECT_DIR -d $PROJECT_DOMAIN
 elif [ $1 = "updatesubmodules" ]; then
     git submodule status

@@ -3,12 +3,12 @@ from scripts.shell_commands import (
 )
 from scripts.commands import (
     copy_to_remote, get_image_hash, update_swarm,
-    collect_static, upload_images, login_registry, build_images
+    collect_static, upload_images, login_registry, build_images, issue_prod_certs
 )
 from scripts.helpers import run_command, run_remote_commands
 from scripts.printing import print_status
 from scripts.constants import (
-    project_env, get_docker_image_prefix, DEPLOY_DIR, COMPOSE_DIR, BASE_ENV_FILE, PROD_ENV_FILE,
+    project_env, get_docker_image_prefix, check_registry_config, DEPLOY_DIR, COMPOSE_DIR, BASE_ENV_FILE, PROD_ENV_FILE,
 )
 from scripts.deploy_config import get_deploy_config
 from scripts.release import release_version, update_version
@@ -47,6 +47,8 @@ def update_prod_nginx():
 
 
 def deploy_production():
+    check_registry_config()
+    issue_prod_certs()
     config = get_deploy_config()
     new_version = update_version()
 
