@@ -2,6 +2,7 @@ from scripts.constants import (
     project_env, get_docker_image_prefix, EnvConfigError, DEPLOY_DIR, DJANGO_DIR, FASTAPI_BUILD_CONTEXT,
     BASE_ENV_FILE, DEV_ENV_FILE, COMPOSE_DIR, PROD_ENV_FILE, NEXTJS_DIR,
 )
+from scripts.paths import BACKUP_DIR
 from scripts.compose.fastapi_image import PROD_DOCKERFILE as FASTAPI_PROD_DOCKERFILE, write_fastapi_dockerfiles
 from scripts.compose.renderer import render_prod_balancer_compose
 from scripts.compose.services import GENERATED_DIR
@@ -15,8 +16,15 @@ import subprocess
 from subprocess import PIPE
 import os
 
+# Scripts run inside the Django image import `scripts.*`, so the deploy dir must be importable.
+CONTAINER_DEPLOY_ENV = "-e PYTHONPATH=/app/deploy"
+
+
 def get_s3_backup_command() -> str:
-    return f"docker run -it --rm -v {DJANGO_DIR}/:/app/src -v {DEPLOY_DIR}/deploy:/app/deploy -v {DEPLOY_DIR}/backup/s3_backup:/tmp/s3_backup --network {project_env.project_name} --env-file {BASE_ENV_FILE}"
+    return (
+        f"docker run -it --rm -v {DJANGO_DIR}/:/app/src -v {DEPLOY_DIR}:/app/deploy -v {BACKUP_DIR}/s3_backup:/tmp/s3_backup "
+        f"{CONTAINER_DEPLOY_ENV} --network {project_env.project_name} --env-file {BASE_ENV_FILE}"
+    )
 
 def restore_s3_backup(env_file: str):
     command = f"{get_s3_backup_command()} --env-file {env_file} {project_env.project_name}-django python /app/deploy/scripts/s3_upload.py"
@@ -99,7 +107,7 @@ def collect_static():
     )
     print_status("Uploading static files to S3")
     run_command(
-        f"docker run --rm -i --env-file={BASE_ENV_FILE} --env-file={PROD_ENV_FILE} -v {DJANGO_DIR}:/app/src -v {DEPLOY_DIR}:/app/deploy {project_env.project_name}-django python /app/deploy/scripts/collect_static.py"
+        f"docker run --rm -i --env-file={BASE_ENV_FILE} --env-file={PROD_ENV_FILE} -v {DJANGO_DIR}:/app/src -v {DEPLOY_DIR}:/app/deploy {CONTAINER_DEPLOY_ENV} {project_env.project_name}-django python /app/deploy/scripts/collect_static.py"
     )
 
 def upload_images():
