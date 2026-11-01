@@ -162,7 +162,3 @@ def restoredev(_args: list[str]) -> None:
             stdin=dump,
         )
 
-
-def updatesubmodules(_args: list[str]) -> None:
-    run(['git', 'submodule', 'status'])
-    run(['git', 'submodule', 'update', '--init', '--recursive', '--remote'])

@@ -1,5 +1,6 @@
 """`dc` command line and env files. Run from the project root: python3.15 -m unittest discover deploy/tests"""
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -75,6 +76,15 @@ class RegistryTest(unittest.TestCase):
         cli.index_commands(cli.COMMANDS)
         for item in (*cli.COMMANDS, cli.COMPOSE_PASSTHROUGH):
             self.assertTrue(callable(cli._resolve(item.handler)), item.handler)
+
+    def test_commands_without_environment_import_without_it(self) -> None:
+        deploy_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = {key: value for key, value in os.environ.items() if key not in ('PROJECT_NAME', 'PROJECT_DOMAIN')}
+        for item in cli.COMMANDS:
+            if item.env is None:
+                code = f'from scripts import cli; cli._resolve({item.handler!r})'
+                result = subprocess.run([sys.executable, '-c', code], cwd=deploy_dir, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f'{item.name}: {result.stderr}')
 
     def test_production_commands_do_not_touch_dev_settings(self) -> None:
         for item in cli.COMMANDS:

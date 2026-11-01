@@ -87,7 +87,7 @@ COMMANDS: tuple[Command, ...] = (
             f'{DEV}:devsuperuser', compose=True, requires='django'),
     command('generate_compose', 'Generate the dev compose files from deploy.json',
             'scripts.compose.generate:generate_dev_compose_files', takes_args=False),
-    command('updatesubmodules', 'git submodule update --init --recursive --remote', f'{DEV}:updatesubmodules',
+    command('updatesubmodules', 'git submodule update --init --recursive --remote', 'scripts.git_commands:updatesubmodules',
             env=None),
     # Data
     command('dumpdev', 'Dev Postgres to backup/<project>dev.sql', f'{DEV}:dumpdev', group='Data', compose=True),

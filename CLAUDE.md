@@ -30,6 +30,7 @@ Scripts resolve paths relative to this layout and must be run from the project r
   - `paths.py` — project layout paths (importable before the environment is loaded); `errors.py` — `EnvConfigError`
   - `constants.py` — `Environment` dataclass built from env vars on import (`project_env`), so modules needing it are imported by `cli` after the env files are loaded
   - `dev_commands.py` — dev commands over `docker compose` (project and balancer), tmux, dev database dump/restore
+  - `git_commands.py` — commands with `env=None` (`updatesubmodules`); must not import `constants`
   - `prod_tools.py` — one-off production commands over ssh (database dump/restore, commands in the app images, logs)
   - `commands.py` — production balancer/certificates setup, image builds, S3 backup commands
   - `deploy_config.py` — loads and validates `deploy.json` into per-component configs (`get_deploy_config()`)
