@@ -4,10 +4,14 @@ from dataclasses import dataclass, field, fields
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEPLOY_DIR = os.path.join(PROJECT_DIR, 'deploy')
 ENV_DIR = os.path.join(PROJECT_DIR, 'environment')
-BACKEND_DIR = os.path.join(PROJECT_DIR, 'backend')
-FASTAPI_DIR = PROJECT_DIR
+# Component directories (see deploy_config.py); FastAPI images are built from the project
+# root with fastapi.packages as the only paths sent to the build.
+DJANGO_DIR = os.path.join(PROJECT_DIR, 'django_backend')
+FASTAPI_BUILD_CONTEXT = PROJECT_DIR
+NEXTJS_DIR = os.path.join(PROJECT_DIR, 'nextjs_frontend')
+# Django runtime data (media etc.) on the host; kept as backend_data for existing deployments.
+DJANGO_DATA_DIR = os.path.join(PROJECT_DIR, 'backend_data')
 COMPOSE_DIR = os.path.join(DEPLOY_DIR, 'compose')
-SPA_DIR = os.path.join(PROJECT_DIR, 'spa')
 VERSION_FILE = os.path.join(ENV_DIR, 'version')
 BASE_ENV_FILE = os.path.join(ENV_DIR, 'env.base')
 PROD_ENV_FILE = os.path.join(ENV_DIR, 'env.prod')
@@ -73,11 +77,12 @@ def read_env() -> Environment:
         registry_password=os.getenv("REGISTRY_PASSWORD"),
         registry_hostname=os.getenv("REGISTRY_HOSTNAME"),
         registry_namespace=os.getenv("REGISTRY_NAMESPACE"),
-        nginx_config_dir=get_config_value("NGINX_CONFIG_DIR", default=f'~/nginx_configs'),
+        # Env files are parsed without a shell (load_env), so "~" must be expanded here.
+        nginx_config_dir=os.path.expanduser(get_config_value("NGINX_CONFIG_DIR", default='~/nginx_configs')),
         prod_app_path=f'/app/{project_name}',
         project_description=f"{project_name} project",
         compose_profiles=os.getenv("COMPOSE_PROFILES", "").split(',') if os.getenv("COMPOSE_PROFILES", "") else [],
-        ssl_certs_dir=get_config_value("SSL_CERTS_DIR", default=f'~/ssl_certs'),
+        ssl_certs_dir=os.path.expanduser(get_config_value("SSL_CERTS_DIR", default='~/ssl_certs')),
         pg_cluster_name=get_config_value("PG_CLUSTER_NAME", "communal-db"),
         pg_db_name=get_config_value("PG_DB_NAME", project_name),
         pg_username=get_config_value("PG_USERNAME", ""),
@@ -98,7 +103,7 @@ def read_env() -> Environment:
         s3_media_bucket = os.getenv('S3_MEDIA_BUCKET', f'{project_name}-media'),
         s3_acl = os.getenv('S3_ACL', 'private'),
         s3_static_bucket = os.getenv('S3_STATIC_BUCKET', f'{project_name}-static'),
-        collected_static_dir=os.path.join(BACKEND_DIR, 'collected_static')
+        collected_static_dir=os.path.join(DJANGO_DIR, 'collected_static')
     )
 
 project_env = read_env()

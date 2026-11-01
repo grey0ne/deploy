@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 ENV POETRY_VIRTUALENVS_CREATE=false
 
 COPY deploy/scripts/setup_node.sh /app/
-COPY backend/install-dependencies.sh /app/
+COPY django_backend/install-dependencies.sh /app/
 
 # apt upgrade can take many minutes and look like a hang; keep only update + install
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
@@ -27,7 +27,7 @@ RUN python -mpip install poetry --root-user-action=ignore
 
 WORKDIR /app
 
-COPY backend/pyproject.toml /app/
+COPY django_backend/pyproject.toml /app/
 RUN poetry install --no-interaction --no-ansi
 
 # Keep container running so the IDE can attach; default python:*-slim CMD is "python3" (REPL),
