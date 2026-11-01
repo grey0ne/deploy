@@ -65,7 +65,6 @@ DEV_COMPOSE="docker-compose -f $GENERATED_COMPOSE_DIR/dev.yml --env-file=$ENV_DI
 BALANCER_COMPOSE="docker-compose -f $GENERATED_COMPOSE_DIR/dev_balancer.yml"
 
 DEV_SUPERUSER_PASSWORD="devpass"
-PROJECT_TEMPLATE_DIR="$HOME/projects/project_template"
 
 is_in_list() {
     local target="$1"
@@ -138,10 +137,6 @@ elif [ $1 = "tmux" ]; then
 elif [ $1 = "devsuperuser" ]; then
     require_component django "$DJANGO_ENABLED"
     $DEV_COMPOSE run --rm django sh -c "export DJANGO_SUPERUSER_PASSWORD='devpass' && python manage.py createsuperuser --noinput --username $2 --email $2@$2.com"
-elif [ $1 = "buildtest" ]; then
-    docker build . --file=dev-scripts/Dockerfile.playwright --tag $PROJECT_NAME-playwright
-elif [ $1 = "runtest" ]; then
-    docker run -it --rm --hostname=$PROJECT_NAME-tests --name=$PROJECT_NAME-tests -v .:/app/src --ipc=host --network=$PROJECT_NAME $PROJECT_NAME-playwright npx playwright test
 elif [ $1 = "generatetypes" ]; then
     require_component nextjs "$NEXTJS_ENABLED"
     $DEV_COMPOSE exec nextjs npx -y openapi-typescript $OPENAPI_URL --output api/apiTypes.ts
@@ -155,9 +150,6 @@ elif [ $1 = "restoreprod" ]; then
     ssh root@$PROJECT_DOMAIN "docker run --rm -i -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine psql -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT -d $2" < $3
 elif [ $1 = "restoredev" ]; then
     docker run --rm -i --network=$PROJECT_NAME -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine psql -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT $DATABASE_NAME < backup/${PROJECT_NAME}dev.sql
-elif [ $1 = "deploystage" ]; then
-    source $DEPLOY_DIR/env.stage
-    $DEPLOY_DIR/deploy.sh $DEPLOY_DIR/env.stage
 elif [ $1 = "updatenginx" ]; then
     PYTHONPATH="$DEPLOY_DIR" python3.15 $DEPLOY_DIR/launch_command.py update_dev_nginx
     $BALANCER_COMPOSE restart
@@ -179,9 +171,6 @@ elif [ $1 = "gencerts" ]; then
     $BALANCER_COMPOSE restart
 elif is_in_list $1 "${PY_COMMANDS[@]}"; then
     PYTHONPATH="$DEPLOY_DIR" python3.15 $DEPLOY_DIR/launch_command.py $1
-elif [ $1 = "updatetemplate" ]; then
-    load_prod_env
-    $PROJECT_TEMPLATE_DIR/update_template.sh -t django_nextjs_template -n $PROJECT_NAME -r $PROJECT_DIR -d $PROJECT_DOMAIN
 elif [ $1 = "updatesubmodules" ]; then
     git submodule status
     git submodule update --init --recursive --remote

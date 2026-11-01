@@ -1,5 +1,0 @@
-FROM node:26.13.0-bookworm
-
-RUN npx -y playwright@1.64.1 install --with-deps
-
-WORKDIR /app/src

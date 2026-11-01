@@ -22,7 +22,7 @@ Scripts resolve paths relative to this layout and must be run from the project r
 
 - `dc` — main CLI (bash). Sources `environment/env.base` + `env.dev` (+ optional `.env`), regenerates compose files on every run, then runs the command. Simple commands are inline; `PY_COMMANDS` are dispatched to `launch_command.py` → `scripts/commands_list.py` (with `PYTHONPATH=deploy`). Unknown args fall through to `docker-compose` with the generated dev compose file. Host Python is invoked as `python3.15` (macOS system `python3` is too old).
 - `pc` — wrapper meant to be copied to `/usr/local/bin/pc` (runs `./deploy/dc`).
-- `docker/` — `Dockerfile.django{dev,prod}`, `Dockerfile.nextjs{dev,prod}`, `Dockerfile.devcontainer`; `Dockerfile.playwright` at the root. FastAPI Dockerfiles are generated from `deploy.json` by `scripts/compose/fastapi_image.py` into `compose/generated/`.
+- `docker/` — `Dockerfile.django{dev,prod}`, `Dockerfile.nextjs{dev,prod}`, `Dockerfile.devcontainer`. FastAPI Dockerfiles are generated from `deploy.json` by `scripts/compose/fastapi_image.py` into `compose/generated/`.
 - `compose/generated/` — dev and balancer compose files, generated from `deploy.json` (gitignored, never edit). `COMPOSE_PROFILES` is deprecated in favour of `deploy.json` `services.*.enabled`.
 - `scripts/` — Python deploy tooling (stdlib only, run with host `python3.15`):
   - `constants.py` — `Environment` dataclass built from env vars (`project_env`)
@@ -40,7 +40,7 @@ Scripts resolve paths relative to this layout and must be run from the project r
 ## Image versions
 
 Image tags are pinned in several places — when bumping, update all of them:
-- `docker/Dockerfile.*`, `Dockerfile.playwright` (`FROM` + playwright npm version)
+- `docker/Dockerfile.*` (`FROM`)
 - `scripts/compose/fastapi_image.py` — `PYTHON_IMAGE` for the generated FastAPI Dockerfiles
 - `scripts/compose/services.py` — `*_IMAGE` constants (postgres, redis, centrifugo, nginx, minio) used for dev, balancer and prod
 - `dc` (postgres image used for dump/restore)
