@@ -7,10 +7,11 @@ from scripts.compose.fastapi_image import PROD_DOCKERFILE as FASTAPI_PROD_DOCKER
 from scripts.compose.renderer import render_prod_balancer_compose
 from scripts.compose.services import GENERATED_DIR
 from scripts.deploy_config import get_deploy_config
-from scripts.helpers import run_command, run_remote_commands, remote_command_succeeds
-from scripts.printing import print_status
+from scripts import swarm_progress
+from scripts.helpers import run_command, run_remote_commands, remote_command_output, remote_command_succeeds
+from scripts.printing import print_error, print_status
 from scripts.shell_commands import (
-    PRINT_COMMAND, RELOAD_NGINX, get_login_registry_script, get_gen_fake_certs_script, get_init_balancer_script, SETUP_DOCKER
+    RELOAD_NGINX, get_login_registry_script, get_gen_fake_certs_script, get_init_balancer_script, SETUP_DOCKER
 )
 import subprocess
 from subprocess import PIPE
@@ -69,17 +70,22 @@ STACK_DEPLOY_TIMEOUT = 300
 
 def update_swarm(compose_file: str, stack_name: str):
     print_status(f"Updating {stack_name} swarm")
-    STACK_COMMAND = f"""
-    {PRINT_COMMAND}
-    if ! timeout {STACK_DEPLOY_TIMEOUT} sh -c "docker stack config -c {compose_file} | docker stack deploy --with-registry-auth --detach=false -c - {stack_name}"; then
-        print_error "Stack {stack_name} did not start within {STACK_DEPLOY_TIMEOUT}s"
+    snapshot = swarm_progress.snapshot_script(stack_name)
+    before = swarm_progress.parse_snapshot(remote_command_output(snapshot))
+    run_remote_commands([
+        f"docker stack config -c {compose_file} | docker stack deploy --with-registry-auth --detach=true -c - {stack_name}"
+    ])
+    converged = swarm_progress.wait_for_stack(
+        before, lambda: swarm_progress.parse_snapshot(remote_command_output(snapshot)), STACK_DEPLOY_TIMEOUT,
+    )
+    if not converged:
+        print_error(f"Stack {stack_name} did not converge (failed or timed out after {STACK_DEPLOY_TIMEOUT}s)")
+        run_remote_commands([f"""
         for SERVICE in $(docker stack services -q {stack_name}); do
             docker service ps --no-trunc --format '{{{{.Name}}}}: {{{{.CurrentState}}}} {{{{.Error}}}}' $SERVICE | head -n 5
             timeout 10 docker service logs --tail 20 $SERVICE
         done
-    fi
-    """
-    run_remote_commands([STACK_COMMAND, ])
+        """])
     print_status("Prune images")
     run_remote_commands(['docker image prune -f',])
 

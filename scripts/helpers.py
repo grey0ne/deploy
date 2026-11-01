@@ -32,6 +32,14 @@ def run_remote_commands(commands: list[str]):
     # Output is not captured so progress of long remote commands is visible
     subprocess.run(ssh_command, input=command, encoding='utf8')
 
+def remote_command_output(command: str) -> str:
+    # Reuses one ssh connection for repeated calls (e.g. polling the swarm during deploy)
+    ssh_command = [
+        'ssh', '-o', 'ControlMaster=auto', '-o', 'ControlPath=/tmp/dc-ssh-%C', '-o', 'ControlPersist=60',
+        f'root@{project_env.project_domain}', 'bash -s',
+    ]
+    return subprocess.run(ssh_command, input=command, encoding='utf8', stdout=subprocess.PIPE, check=True).stdout
+
 def remote_command_succeeds(command: str) -> bool:
     ssh_command = ['ssh', f'root@{project_env.project_domain}', command]
     return subprocess.run(ssh_command, stdout=subprocess.DEVNULL).returncode == 0
