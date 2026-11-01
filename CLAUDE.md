@@ -27,6 +27,7 @@ Scripts resolve paths relative to this layout and must be run from the project r
 - `scripts/` — Python deploy tooling (stdlib only, run with host `python3.15`):
   - `constants.py` — `Environment` dataclass built from env vars (`project_env`)
   - `deploy_config.py` — loads and validates `deploy.json` into per-component configs (`get_deploy_config()`)
+  - `dev_balancer.py` — dev certificates, `/etc/hosts`, project nginx config for the shared balancer; `ensure_dev_balancer` (run by `dc up`) repairs only what is missing and validates a changed config with `nginx -t` before the balancer reloads
   - `shell_config.py` — exports the component settings as shell variables for `dc`
   - `compose/` — compose generation: `services.py` (service definitions + image constants), `fastapi_image.py` (FastAPI Dockerfiles + uvicorn command), `renderer.py`, `generate.py`, `yaml_dump.py`
   - `deploy_production.py` — check registry config → issue missing SSL certs (same as `certprod`) → bump version → build images of enabled components (`--platform linux/amd64`) → push to registry → git commit version + Sentry release → collectstatic to S3 (Django) → render prod compose → copy to server → migrate each backend → `docker stack` update → nginx reload

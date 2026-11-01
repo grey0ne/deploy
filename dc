@@ -82,6 +82,9 @@ is_in_list() {
 }
 
 PY_COMMANDS=("initprod" "deploybalancer" "deployprod" "certprod" "s3backupprod" "s3restoreprod" "s3backupdev" "s3restoredev" "s3createdevbucket" "update_dev_nginx" "generate_compose")
+# Exit code of `ensure_dev_balancer` meaning "nginx config changed, restart the balancer"
+# (NGINX_CHANGED_EXIT_CODE in scripts/dev_balancer.py).
+NGINX_CHANGED_EXIT_CODE=10
 
 PROD_DIR="/app/$PROJECT_NAME"
 DOCKER_IMAGE_PREFIX="$REGISTRY_HOSTNAME/$REGISTRY_NAMESPACE/$PROJECT_NAME"
@@ -104,7 +107,19 @@ elif [ $1 = "migrate" ]; then
         $DEV_COMPOSE run --rm fastapi sh -c "$FASTAPI_MIGRATE_COMMAND"
     fi
 elif [ $1 = "up" ]; then
+    # Certificates, /etc/hosts and the project's nginx config are created/updated when missing
+    # or outdated (sudo is asked only then); a changed config is validated before the reload.
+    set +e
+    PYTHONPATH="$DEPLOY_DIR" python3.15 "$DEPLOY_DIR/launch_command.py" ensure_dev_balancer
+    ENSURE_STATUS=$?
+    set -e
+    if [ $ENSURE_STATUS -ne 0 ] && [ $ENSURE_STATUS -ne $NGINX_CHANGED_EXIT_CODE ]; then
+        exit $ENSURE_STATUS
+    fi
     $BALANCER_COMPOSE up -d
+    if [ $ENSURE_STATUS -eq $NGINX_CHANGED_EXIT_CODE ]; then
+        $BALANCER_COMPOSE restart
+    fi
     $DEV_COMPOSE up -d
 elif [ $1 = "sh" ]; then
     $DEV_COMPOSE exec $2 bash
