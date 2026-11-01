@@ -153,7 +153,6 @@ def dev_celery_service() -> dict:
         'volumes': [f'{DJANGO_DIR}:/app/src'],
         'env_file': _env_files_dev(),
         'networks': ['app', 'devnet'],
-        'profiles': ['celery'],
     }
 
 
@@ -166,7 +165,6 @@ def dev_centrifugo_service() -> dict:
         'command': 'centrifugo',
         'env_file': _env_files_dev(),
         'networks': ['app', 'devnet'],
-        'profiles': ['centrifugo'],
     }
 
 
@@ -178,7 +176,6 @@ def dev_redis_service() -> dict:
         'domainname': f'{name}-redis',
         'volumes': ['redis-data:/data'],
         'networks': ['app', 'devnet'],
-        'profiles': ['celery', 'centrifugo'],
     }
 
 
