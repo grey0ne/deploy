@@ -3,9 +3,10 @@ import os
 from scripts.printing import print_status
 from scripts.do_init import init_do_infra
 from scripts.commands import (
-    setup_balancer, update_dev_nginx, production_setup, issue_prod_certs, create_s3_backup,
+    setup_balancer, production_setup, issue_prod_certs, create_s3_backup,
     restore_s3_backup, create_s3_dev_bucket
 )
+from scripts.dev_balancer import ensure_dev_balancer, update_dev_nginx
 from scripts.deploy_production import deploy_production
 from scripts.compose.generate import generate_dev_compose_files
 from scripts.constants import update_environment, BASE_ENV_FILE, PROD_ENV_FILE, DEV_ENV_FILE
@@ -81,6 +82,12 @@ COMMANDS: list[Command] = [
         keywords=["update_dev_nginx",],
         description="Update the dev nginx balancer configuration",
         func=update_dev_nginx,
+        env='dev'
+    ),
+    Command(
+        keywords=["ensure_dev_balancer",],
+        description="Check dev certificates, hosts entries and nginx config (run by `dc up`)",
+        func=ensure_dev_balancer,
         env='dev'
     ),
     Command(

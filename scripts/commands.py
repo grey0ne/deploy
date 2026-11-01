@@ -11,9 +11,6 @@ from scripts.printing import print_status
 from scripts.shell_commands import (
     PRINT_COMMAND, RELOAD_NGINX, get_login_registry_script, get_gen_fake_certs_script, get_init_balancer_script, SETUP_DOCKER
 )
-from scripts.nginx.configuration import (
-    render_dev_nginx_conf, render_centrifugo_dev_nginx_conf, render_extra_dev_domain_nginx_conf
-)
 import subprocess
 from subprocess import PIPE
 import os
@@ -81,16 +78,6 @@ def setup_balancer():
     reload_prod_nginx()
 
 
-def update_dev_nginx():
-    run_command(
-        f"mkdir -p {project_env.nginx_config_dir}"
-    )
-    render_dev_nginx_conf(f"{project_env.nginx_config_dir}/{project_env.project_name}.conf.template")
-    if get_deploy_config().centrifugo_enabled:
-        render_centrifugo_dev_nginx_conf(f"{project_env.nginx_config_dir}/{project_env.project_name}_centrifugo.conf.template")
-    for domain in project_env.extra_domains:
-        render_extra_dev_domain_nginx_conf(f"{project_env.nginx_config_dir}/{project_env.project_name}_{domain}.conf.template", domain)
-
 def collect_static():
     if not get_deploy_config().django.enabled:
         return
@@ -131,44 +118,6 @@ def build_images():
         create_next_public_env_file()
         build_image("nextjs", f"{DEPLOY_DIR}/docker/Dockerfile.nextjsprod", NEXTJS_DIR)
         run_command(f"rm {NEXTJS_DIR}/.env")
-
-
-def gen_cert(name:str, domain:str):
-    print_status(f"Generating cert {name} for {domain}")
-    run_command(
-        f"{DEPLOY_DIR}/generate_certs.sh {name} {domain}"
-    )
-
-def add_cert_to_trusted(cert_path: str):
-    print_status(f"Adding cert to trusted {cert_path}")
-    run_command(
-        f"sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain {cert_path}"
-    )
-
-def update_hosts(domain: str):
-    print_status(f"Updating hosts file with {domain}")
-    run_command(
-        f"{DEPLOY_DIR}/update_hosts.sh addhost {domain}"
-    )
-
-def generate_dev_certs():
-    config = get_deploy_config()
-    gen_cert(project_env.project_name, project_env.project_domain)
-    add_cert_to_trusted(f"{project_env.ssl_certs_dir}/{project_env.project_name}.crt")
-    update_hosts(project_env.project_domain)
-    if config.django.enabled:
-        gen_cert(f"media_{project_env.project_name}", f"media.{project_env.project_domain}")
-        add_cert_to_trusted(f"{project_env.ssl_certs_dir}/media_{project_env.project_name}.crt")
-        update_hosts(f"media.{project_env.project_domain}")
-    for domain in project_env.extra_domains:
-        cert_name = f"{project_env.project_name}_{domain}"
-        gen_cert(cert_name, domain)
-        add_cert_to_trusted(f"{project_env.ssl_certs_dir}/{cert_name}.crt")
-        update_hosts(domain)
-    if get_deploy_config().centrifugo_enabled:
-        gen_cert(f"centrifugo_{project_env.project_name}", f"centrifugo.{project_env.project_domain}")
-        add_cert_to_trusted(f"{project_env.ssl_certs_dir}/centrifugo_{project_env.project_name}.crt")
-        update_hosts(f"centrifugo.{project_env.project_domain}")
 
 
 def setup_prod_domain_cert(domain: str):

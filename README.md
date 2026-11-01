@@ -137,13 +137,13 @@ The Next.js service gets `BACKEND_INTERNAL_URL` (`http://${PROJECT_NAME}-django:
 
 | Command | What it does |
 |---|---|
-| `dc up` | Start the dev balancer and the project (`dc` passes unknown arguments to `docker-compose`). |
+| `dc up` | Start the dev balancer and the project. First checks the prerequisites and fixes only what is missing: dev certificates (generated and trusted), `/etc/hosts` entries, the `devnet` network, and the project's nginx config — a changed config is validated with `nginx -t` together with all other projects' configs, written, and the balancer restarted; an invalid one stops `dc up` without touching the balancer. `sudo` is asked only when a certificate or hosts entry must be added. |
 | `dc rebuild` | Rebuild images of all enabled components; reinstall `node_modules` for Next.js. |
 | `dc migrate` | Django `migrate` and/or `fastapi.migrate_command`, for each enabled backend. |
 | `dc test` | `pytest` in each enabled backend container. |
 | `dc django …`, `dc format`, `dc devsuperuser …` | Django only. |
 | `dc generatetypes` | OpenAPI types from `nextjs.backend` into `nextjs_frontend/api/apiTypes.ts`. |
-| `dc gencerts`, `dc updatenginx` | Dev certificates (+ `/etc/hosts`) and balancer config. |
+| `dc gencerts`, `dc updatenginx` | Regenerate all dev certificates (+ `/etc/hosts`); validate, write and reload the balancer config. Usually not needed: `dc up` does both when required. |
 | `dc deployprod` | Build and push images of enabled components, migrate each backend, update the Swarm stack and nginx. |
 
 ## Docker Compose generation
