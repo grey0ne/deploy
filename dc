@@ -44,12 +44,17 @@ require_deploy_json() {
 require_deploy_json
 
 generate_compose_files() {
-    PYTHONPATH="$DEPLOY_DIR" python3.14 "$DEPLOY_DIR/launch_command.py" generate_compose
+    PYTHONPATH="$DEPLOY_DIR" python3.15 "$DEPLOY_DIR/launch_command.py" generate_compose
 }
 
 generate_compose_files
 
-STACK=$(PYTHONPATH="$DEPLOY_DIR" python3.14 -c "from scripts.deploy_config import get_deploy_config; print(get_deploy_config().stack)")
+deploy_config_value() {
+    PYTHONPATH="$DEPLOY_DIR" python3.15 -c "from scripts.deploy_config import get_deploy_config; c = get_deploy_config(); print($1)"
+}
+
+STACK=$(deploy_config_value "c.stack")
+HAS_NEXTJS=$(deploy_config_value "'yes' if c.has_nextjs else 'no'")
 
 DEV_COMPOSE="docker-compose -f $GENERATED_COMPOSE_DIR/dev.yml --env-file=$ENV_DIR/env.base --env-file=$ENV_DIR/env.dev"
 BALANCER_COMPOSE="docker-compose -f $GENERATED_COMPOSE_DIR/dev_balancer.yml"
@@ -83,10 +88,24 @@ elif [ $1 = "rebuild" ]; then
     if [ "$STACK" = "fastapi" ]; then
         $DEV_COMPOSE build fastapi
     else
-        $DEV_COMPOSE build nextjs django
+        $DEV_COMPOSE build django
+    fi
+    if [ "$HAS_NEXTJS" = "yes" ]; then
+        $DEV_COMPOSE build nextjs
         $DEV_COMPOSE run --rm -i nextjs sh -c "rm -rf node_modules package-lock.json && npm install"
     fi
     $DEV_COMPOSE up -d
+elif [ $1 = "migrate" ]; then
+    if [ "$STACK" = "fastapi" ]; then
+        MIGRATE_COMMAND=$(deploy_config_value "c.fastapi.migrate_command")
+        if [ -z "$MIGRATE_COMMAND" ]; then
+            echo "deploy.json has no fastapi.migrate_command" >&2
+            exit 1
+        fi
+        $DEV_COMPOSE run --rm fastapi sh -c "$MIGRATE_COMMAND"
+    else
+        $DEV_COMPOSE run --rm django python manage.py migrate "${@:2}"
+    fi
 elif [ $1 = "up" ]; then
     $BALANCER_COMPOSE up -d
     $DEV_COMPOSE up -d
@@ -109,7 +128,12 @@ elif [ $1 = "buildtest" ]; then
 elif [ $1 = "runtest" ]; then
     docker run -it --rm --hostname=$PROJECT_NAME-tests --name=$PROJECT_NAME-tests -v .:/app/src --ipc=host --network=$PROJECT_NAME $PROJECT_NAME-playwright npx playwright test
 elif [ $1 = "generatetypes" ]; then
-    $DEV_COMPOSE exec nextjs npx -y openapi-typescript http://${PROJECT_NAME}-django:8000/api/openapi.json --output api/apiTypes.ts
+    if [ "$STACK" = "fastapi" ]; then
+        OPENAPI_URL="http://${PROJECT_NAME}-fastapi:8080/api/openapi.json"
+    else
+        OPENAPI_URL="http://${PROJECT_NAME}-django:8000/api/openapi.json"
+    fi
+    $DEV_COMPOSE exec nextjs npx -y openapi-typescript $OPENAPI_URL --output api/apiTypes.ts
 elif [ $1 = "dumpprod" ]; then
     load_prod_env
     ssh root@$PROJECT_DOMAIN "docker run --rm -i -e PGPASSWORD=$DATABASE_PASSWORD postgres:16.15-alpine pg_dump -U $DATABASE_USER -h $DATABASE_HOST -p $DATABASE_PORT $DATABASE_NAME" > backup/$PROJECT_NAME.sql
@@ -124,7 +148,7 @@ elif [ $1 = "deploystage" ]; then
     source $DEPLOY_DIR/env.stage
     $DEPLOY_DIR/deploy.sh $DEPLOY_DIR/env.stage
 elif [ $1 = "updatenginx" ]; then
-    PYTHONPATH="$DEPLOY_DIR" python3.14 $DEPLOY_DIR/launch_command.py update_dev_nginx
+    PYTHONPATH="$DEPLOY_DIR" python3.15 $DEPLOY_DIR/launch_command.py update_dev_nginx
     $BALANCER_COMPOSE restart
 elif [ $1 = "nginx" ]; then
     $BALANCER_COMPOSE "${@:2}"
@@ -138,10 +162,10 @@ elif [ $1 = "logsprod" ]; then
     load_prod_env
     ssh root@$PROJECT_DOMAIN "docker service logs ${PROJECT_NAME}_${PROJECT_NAME}-${2}"
 elif [ $1 = "gencerts" ]; then
-    python3.14 $DEPLOY_DIR/generate_dev_certificates.py
+    python3.15 $DEPLOY_DIR/generate_dev_certificates.py
     $BALANCER_COMPOSE restart
 elif is_in_list $1 "${PY_COMMANDS[@]}"; then
-    PYTHONPATH="$DEPLOY_DIR" python3.14 $DEPLOY_DIR/launch_command.py $1
+    PYTHONPATH="$DEPLOY_DIR" python3.15 $DEPLOY_DIR/launch_command.py $1
 elif [ $1 = "updatetemplate" ]; then
     load_prod_env
     $PROJECT_TEMPLATE_DIR/update_template.sh -t django_nextjs_template -n $PROJECT_NAME -r $PROJECT_DIR -d $PROJECT_DOMAIN

@@ -2,6 +2,7 @@ from scripts.constants import (
     project_env, get_docker_image_prefix, EnvConfigError, DEPLOY_DIR, BACKEND_DIR, FASTAPI_DIR,
     BASE_ENV_FILE, DEV_ENV_FILE, COMPOSE_DIR, PROD_ENV_FILE, SPA_DIR,
 )
+from scripts.compose.fastapi_image import PROD_DOCKERFILE as FASTAPI_PROD_DOCKERFILE, write_fastapi_dockerfiles
 from scripts.compose.renderer import render_prod_balancer_compose
 from scripts.compose.services import GENERATED_DIR
 from scripts.deploy_config import get_deploy_config
@@ -105,11 +106,10 @@ def collect_static():
 def upload_images():
     print_status("Uploading images to registry")
     config = get_deploy_config()
-    if config.is_fastapi:
-        run_command(f"docker push {get_docker_image_prefix()}-fastapi")
-        return
-    run_command(f"docker push {get_docker_image_prefix()}-django")
-    run_command(f"docker push {get_docker_image_prefix()}-nextjs")
+    backend = "fastapi" if config.is_fastapi else "django"
+    run_command(f"docker push {get_docker_image_prefix()}-{backend}")
+    if config.has_nextjs:
+        run_command(f"docker push {get_docker_image_prefix()}-nextjs")
 
 def login_registry():
     run_command(get_login_registry_script())
@@ -125,13 +125,12 @@ def build_image(service: str, dockerfile: str, context: str):
 def build_images():
     config = get_deploy_config()
     if config.is_fastapi:
-        build_image(
-            "fastapi",
-            f"{DEPLOY_DIR}/docker/Dockerfile.fastapiprod",
-            FASTAPI_DIR,
-        )
+        write_fastapi_dockerfiles(config)
+        build_image("fastapi", FASTAPI_PROD_DOCKERFILE, FASTAPI_DIR)
+    else:
+        build_image("django", f"{DEPLOY_DIR}/docker/Dockerfile.djangoprod", BACKEND_DIR)
+    if not config.has_nextjs:
         return
-    build_image("django", f"{DEPLOY_DIR}/docker/Dockerfile.djangoprod", BACKEND_DIR)
 
     # Nextjs build requires env file to hardcode NEXT_PUBLIC_* variables
     create_next_public_env_file()

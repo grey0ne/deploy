@@ -13,20 +13,20 @@ Shared deploy/dev tooling for Django + Next.js (`django_nextjs` stack) and FastA
   environment/  env.base (committed), env.dev, env.prod (secrets), version
 ```
 
-FastAPI projects use the repo root as the Python package context instead of `backend/` + `spa/`.
+FastAPI projects list their Python package directories in `deploy.json` (`fastapi.packages`, built with the repo root as context) and may add `spa/` with `fastapi.frontend`.
 
 Scripts resolve paths relative to this layout (`scripts/constants.py`) and must be run from the project root.
 
 ## Contents
 
-- `dc` — main CLI (bash). Sources `environment/env.base` + `env.dev` (+ optional `.env`), regenerates compose files on every run, then runs the command. Simple commands are inline; `PY_COMMANDS` are dispatched to `launch_command.py` → `scripts/commands_list.py` (with `PYTHONPATH=deploy`). Unknown args fall through to `docker-compose` with the generated dev compose file. Host Python is invoked as `python3.14` (macOS system `python3` is too old).
+- `dc` — main CLI (bash). Sources `environment/env.base` + `env.dev` (+ optional `.env`), regenerates compose files on every run, then runs the command. Simple commands are inline; `PY_COMMANDS` are dispatched to `launch_command.py` → `scripts/commands_list.py` (with `PYTHONPATH=deploy`). Unknown args fall through to `docker-compose` with the generated dev compose file. Host Python is invoked as `python3.15` (macOS system `python3` is too old).
 - `pc` — wrapper meant to be copied to `/usr/local/bin/pc` (runs `./deploy/dc`).
-- `docker/` — `Dockerfile.django{dev,prod}`, `Dockerfile.nextjs{dev,prod}`, `Dockerfile.fastapi{dev,prod}`, `Dockerfile.devcontainer`; `Dockerfile.playwright` at the root.
+- `docker/` — `Dockerfile.django{dev,prod}`, `Dockerfile.nextjs{dev,prod}`, `Dockerfile.devcontainer`; `Dockerfile.playwright` at the root. FastAPI Dockerfiles are generated from `deploy.json` by `scripts/compose/fastapi_image.py` into `compose/generated/`.
 - `compose/generated/` — dev and balancer compose files, generated from `deploy.json` (gitignored, never edit). `COMPOSE_PROFILES` is deprecated in favour of `deploy.json` `services.*.enabled`.
-- `scripts/` — Python deploy tooling (stdlib only, run with host `python3.14`):
+- `scripts/` — Python deploy tooling (stdlib only, run with host `python3.15`):
   - `constants.py` — `Environment` dataclass built from env vars (`project_env`)
   - `deploy_config.py` — loads and validates `deploy.json` (`get_deploy_config()`)
-  - `compose/` — compose generation: `services.py` (service definitions + image constants), `renderer.py`, `generate.py`, `yaml_dump.py`
+  - `compose/` — compose generation: `services.py` (service definitions + image constants), `fastapi_image.py` (FastAPI Dockerfiles + uvicorn command), `renderer.py`, `generate.py`, `yaml_dump.py`
   - `deploy_production.py` — check registry config → issue missing SSL certs (same as `certprod`) → bump version → build images (`--platform linux/amd64`) → push to registry → git commit version + Sentry release → collectstatic to S3 → render prod compose → copy to server → migrate → `docker stack` update → nginx reload
   - `docker_compose.py` — writes the prod swarm compose file (via `compose/renderer.py`)
   - `nginx/` — nginx config templates for dev and prod
@@ -38,6 +38,7 @@ Scripts resolve paths relative to this layout (`scripts/constants.py`) and must 
 
 Image tags are pinned in several places — when bumping, update all of them:
 - `docker/Dockerfile.*`, `Dockerfile.playwright` (`FROM` + playwright npm version)
+- `scripts/compose/fastapi_image.py` — `PYTHON_IMAGE` for the generated FastAPI Dockerfiles
 - `scripts/compose/services.py` — `*_IMAGE` constants (postgres, redis, centrifugo, nginx, minio) used for dev, balancer and prod
 - `dc` (postgres image used for dump/restore)
 

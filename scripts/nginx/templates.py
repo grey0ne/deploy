@@ -596,3 +596,72 @@ server {
     }
 }
 """
+# fastapi stack with frontend: backend paths go to FastAPI (unbuffered for SSE, with
+# WebSocket upgrade), everything else to Next.js. {SSL_CERTIFICATE}/{SSL_CERTIFICATE_KEY},
+# {RESOLVER} and {BACKEND_PATHS} (regex alternation) differ between dev and prod.
+FASTAPI_NEXTJS_SERVER_TEMPLATE = """
+server {
+    listen 443 ssl;
+    access_log /dev/stdout;
+
+    server_name {DOMAIN};
+
+    ssl_certificate {SSL_CERTIFICATE};
+    ssl_certificate_key {SSL_CERTIFICATE_KEY};
+
+    client_max_body_size 50000k;
+
+    gzip on;
+    gzip_min_length 1000;
+    gzip_proxied any;
+    gzip_types text/css application/x-javascript application/json;
+
+    resolver {RESOLVER} valid=30s;
+
+    location ~ ^/({BACKEND_PATHS})(/|$) {
+        set $fastapi{PROJECT_NAME} {PROJECT_NAME}-fastapi;
+        proxy_pass http://$fastapi{PROJECT_NAME}:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        # Server-sent events (streaming responses) must reach the client as they are produced.
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_connect_timeout       300;
+        proxy_send_timeout          300;
+        proxy_read_timeout          300;
+        send_timeout                300;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Scheme $scheme;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto 'https';
+    }
+
+    location / {
+        set $nextjs{PROJECT_NAME} {PROJECT_NAME}-nextjs;
+        proxy_pass http://$nextjs{PROJECT_NAME}:3000;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Scheme $scheme;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Proto 'https';
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+"""
+
+FASTAPI_NEXTJS_PROD_HTTP_TEMPLATE = """
+server {
+    listen 80;
+    server_name {DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+"""

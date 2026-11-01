@@ -1,7 +1,8 @@
 import json
 import os
+import re
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from scripts.constants import PROJECT_DIR, project_env
@@ -31,6 +32,40 @@ class DeployConfigError(Exception):
     """deploy.json is missing, invalid, or incomplete."""
 
 
+DEFAULT_FASTAPI_BACKEND_PATHS = ('api', 'ws', 'health', 'docs', 'openapi.json')
+
+_PACKAGE_RE = re.compile(r'^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$')
+_APP_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$')
+_PATH_SEGMENT_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
+_APT_PACKAGE_RE = re.compile(r'^[a-z0-9][a-z0-9+.-]*$')
+
+
+@dataclass(frozen=True)
+class FastapiConfig:
+    """``fastapi`` section of deploy.json (fastapi stack only)."""
+
+    # Directories (relative to the project root) with a pyproject.toml, installed into the image.
+    packages: tuple[str, ...] = ()
+    # uvicorn import string, e.g. "main:app" or "proxy.main:create_app".
+    app: str = ''
+    # Package directory used as uvicorn --app-dir and working dir; defaults to the last package.
+    app_dir: str = ''
+    factory: bool = False
+    # Serve spa/ (Next.js) next to FastAPI; nginx sends backend_paths to FastAPI, the rest to Next.js.
+    frontend: bool = False
+    backend_paths: tuple[str, ...] = DEFAULT_FASTAPI_BACKEND_PATHS
+    # Mount the Docker socket into the FastAPI container (apps that start containers).
+    docker_socket: bool = False
+    # Debian packages installed into the FastAPI image.
+    apt_packages: tuple[str, ...] = ()
+    # Shell command run in the FastAPI container by `dc migrate` and on production deploy.
+    migrate_command: str = ''
+
+    @property
+    def effective_app_dir(self) -> str:
+        return self.app_dir or (self.packages[-1] if self.packages else '')
+
+
 @dataclass
 class DeployConfig:
     stack: StackType = 'django_nextjs'
@@ -40,10 +75,16 @@ class DeployConfig:
     minio_enabled: bool = True
     django_worker_count: int = 2
     fastapi_worker_count: int = 2
+    fastapi: FastapiConfig = field(default_factory=FastapiConfig)
 
     @property
     def is_fastapi(self) -> bool:
         return self.stack == 'fastapi'
+
+    @property
+    def has_nextjs(self) -> bool:
+        """Next.js (spa/) is part of the stack: always for django_nextjs, optional for fastapi."""
+        return not self.is_fastapi or self.fastapi.frontend
 
     @property
     def is_django_nextjs(self) -> bool:
@@ -117,16 +158,57 @@ def _apply_compose_profiles_fallback(config: DeployConfig) -> DeployConfig:
         DeprecationWarning,
         stacklevel=2,
     )
-    celery = config.celery_enabled or 'celery' in profiles
-    centrifugo = config.centrifugo_enabled or 'centrifugo' in profiles
-    return DeployConfig(
-        stack=config.stack,
-        celery_enabled=celery,
-        centrifugo_enabled=centrifugo,
-        postgres_enabled=config.postgres_enabled,
-        minio_enabled=config.minio_enabled,
-        django_worker_count=config.django_worker_count,
-        fastapi_worker_count=config.fastapi_worker_count,
+    return replace(
+        config,
+        celery_enabled=config.celery_enabled or 'celery' in profiles,
+        centrifugo_enabled=config.centrifugo_enabled or 'centrifugo' in profiles,
+    )
+
+
+def _str_list(section: dict, key: str, pattern: re.Pattern[str], default: tuple[str, ...]) -> tuple[str, ...]:
+    value = section.get(key)
+    if value is None:
+        return default
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise DeployConfigError(f'deploy.json field "fastapi.{key}" must be a list of strings')
+    for item in value:
+        # Paths stay inside the project: no "." / ".." segments.
+        if not pattern.match(item) or any(part in ('.', '..') for part in item.split('/')):
+            raise DeployConfigError(f'deploy.json field "fastapi.{key}" has an invalid entry: {item!r}')
+    return tuple(value)
+
+
+def _parse_fastapi_section(section: dict) -> FastapiConfig:
+    if not isinstance(section, dict):
+        raise DeployConfigError('deploy.json field "fastapi" must be an object')
+    packages = _str_list(section, 'packages', _PACKAGE_RE, ())
+    app = section.get('app', '')
+    if not isinstance(app, str) or not _APP_RE.match(app):
+        raise DeployConfigError(
+            'deploy.json field "fastapi.app" is required for the fastapi stack: '
+            'a uvicorn import string like "main:app"'
+        )
+    if not packages:
+        raise DeployConfigError(
+            'deploy.json field "fastapi.packages" is required for the fastapi stack: '
+            'directories with a pyproject.toml, e.g. ["backend"]'
+        )
+    app_dir = section.get('app_dir', '')
+    if not isinstance(app_dir, str) or (app_dir and app_dir not in packages):
+        raise DeployConfigError('deploy.json field "fastapi.app_dir" must be one of "fastapi.packages"')
+    migrate_command = section.get('migrate_command', '')
+    if not isinstance(migrate_command, str):
+        raise DeployConfigError('deploy.json field "fastapi.migrate_command" must be a string')
+    return FastapiConfig(
+        packages=packages,
+        app=app,
+        app_dir=app_dir,
+        factory=_parse_bool(section.get('factory'), False),
+        frontend=_parse_bool(section.get('frontend'), False),
+        backend_paths=_str_list(section, 'backend_paths', _PATH_SEGMENT_RE, DEFAULT_FASTAPI_BACKEND_PATHS),
+        docker_socket=_parse_bool(section.get('docker_socket'), False),
+        apt_packages=_str_list(section, 'apt_packages', _APT_PACKAGE_RE, ()),
+        migrate_command=migrate_command.strip(),
     )
 
 
@@ -181,6 +263,7 @@ def load_deploy_config() -> DeployConfig:
         fastapi_worker_count = int(fastapi_section['worker_count'])
 
     dev_defaults = DEFAULT_DEV_FASTAPI if stack == 'fastapi' else DEFAULT_DEV
+    fastapi = _parse_fastapi_section(fastapi_section) if stack == 'fastapi' else FastapiConfig()
 
     config = DeployConfig(
         stack=stack,
@@ -190,6 +273,7 @@ def load_deploy_config() -> DeployConfig:
         minio_enabled=_dev_enabled(data, 'minio', dev_defaults['minio']),
         django_worker_count=django_worker_count,
         fastapi_worker_count=fastapi_worker_count,
+        fastapi=fastapi,
     )
     _deploy_config = _apply_compose_profiles_fallback(config)
     return _deploy_config

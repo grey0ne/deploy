@@ -1,3 +1,5 @@
+import shlex
+
 from scripts.shell_commands import (
     get_init_swarm_script, RELOAD_NGINX
 )
@@ -61,7 +63,8 @@ def deploy_production():
 
     if config.is_fastapi:
         fastapi_image = get_image_hash(f'{get_docker_image_prefix()}-fastapi')
-        render_production_compose_file(fastapi_image=fastapi_image)
+        nextjs_image = get_image_hash(f'{get_docker_image_prefix()}-nextjs') if config.has_nextjs else ''
+        render_production_compose_file(fastapi_image=fastapi_image, nextjs_image=nextjs_image)
         print_status(f"Deploying to {project_env.project_domain}")
         run_remote_commands([f"mkdir -p {project_env.prod_app_path}"])
     else:
@@ -90,6 +93,13 @@ def deploy_production():
     if config.is_fastapi:
         print_status("Update fastapi image")
         run_remote_commands([f"docker pull {get_docker_image_prefix()}-fastapi"])
+        if config.fastapi.migrate_command:
+            print_status("Perform migrations")
+            run_remote_commands([
+                f"docker run --rm -i --env-file={project_env.prod_app_path}/env.base "
+                f"--env-file={project_env.prod_app_path}/env {get_docker_image_prefix()}-fastapi "
+                f"sh -c {shlex.quote(config.fastapi.migrate_command)}"
+            ])
     else:
         print_status("Update django image for migrations")
         run_remote_commands([f"docker pull {get_docker_image_prefix()}-django"])

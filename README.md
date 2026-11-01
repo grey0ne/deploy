@@ -2,7 +2,7 @@
 
 Scripts for automating deploy of django + nextjs or fastapi projects.
 
-This repo is expected to be a **git submodule** at `deploy/` in the project repo. The project root should contain `deploy/`, `environment/`, and **`deploy.json`**. Django stacks also need `backend/` and `spa/`; FastAPI stacks use the repo root as the Python package context.
+This repo is expected to be a **git submodule** at `deploy/` in the project repo. The project root should contain `deploy/`, `environment/`, and **`deploy.json`**. Django stacks also need `backend/` and `spa/`; FastAPI stacks list their Python package directories in `deploy.json` and may add `spa/` (Next.js). Host scripts run with `python3.15`.
 
 ## Configuration
 
@@ -37,19 +37,37 @@ This repo is expected to be a **git submodule** at `deploy/` in the project repo
 ```json
 {
   "stack": "fastapi",
-  "services": {
-    "celery": { "enabled": false },
-    "centrifugo": { "enabled": false }
-  },
   "dev": {
-    "postgres": { "enabled": false },
-    "minio": { "enabled": false }
+    "postgres": { "enabled": true }
   },
   "fastapi": {
-    "worker_count": 2
+    "worker_count": 1,
+    "packages": ["backend"],
+    "app": "main:app",
+    "frontend": true,
+    "backend_paths": ["api", "v1", "health"],
+    "docker_socket": true,
+    "apt_packages": ["docker-cli"],
+    "migrate_command": "alembic -c alembic.ini upgrade head"
   }
 }
 ```
+
+`fastapi` fields:
+
+| Field | Meaning |
+|---|---|
+| `packages` (required) | Directories with a `pyproject.toml`, installed into the image in this order (`pip install -e` in dev, mounted into the container). |
+| `app` (required) | uvicorn import string, e.g. `main:app` or `proxy.main:create_app`. |
+| `app_dir` | Package used as the working directory / import root; defaults to the last package. |
+| `factory` | `app` is an application factory (`uvicorn --factory`). |
+| `frontend` | Add the Next.js service from `spa/`; nginx routes `backend_paths` to FastAPI (unbuffered, WebSocket upgrade) and everything else to Next.js. Without it all traffic goes to FastAPI. |
+| `backend_paths` | First path segments routed to FastAPI when `frontend` is on; default `api`, `ws`, `health`, `docs`, `openapi.json`. |
+| `docker_socket` | Mount `/var/run/docker.sock` into the FastAPI container (dev and prod). |
+| `apt_packages` | Debian packages installed into the FastAPI image. |
+| `migrate_command` | Run by `dc migrate` and on `deployprod`. |
+
+The FastAPI Dockerfiles are generated from these settings into `deploy/compose/generated/Dockerfile.fastapi{dev,prod}` (with a matching `.dockerignore` that sends only `packages` to the build). Migrating an existing FastAPI project (e.g. llm_proxy): add `"packages": ["shared", "proxy"], "app": "proxy.main:create_app", "factory": true`.
 
 - **stack**: `django_nextjs` (default) or `fastapi` (single backend behind nginx).
 - **services**: optional production (and dev) stack pieces. `redis` is added automatically when celery or centrifugo is enabled.
@@ -70,7 +88,7 @@ Manual generation:
 ```bash
 ./deploy/dc generate_compose
 # or
-python3 deploy/launch_command.py generate_compose  # with env.base + env.dev loaded
+python3.15 deploy/launch_command.py generate_compose  # with env.base + env.dev loaded
 ```
 
 Production `prod.yml` is generated during `deployprod` and copied to the server (ephemeral local copy under `deploy/compose/`).
@@ -78,4 +96,4 @@ Production `prod.yml` is generated during `deployprod` and copied to the server 
 ## Project layout
 
 - **django_nextjs**: backend dependencies via `install-dependencies.sh` in `backend/`.
-- **fastapi**: `proxy/pyproject.toml` and `shared/pyproject.toml`; images install those packages via `Dockerfile.fastapidev` / `Dockerfile.fastapiprod`.
+- **fastapi**: the `fastapi.packages` directories (each with a `pyproject.toml`); `spa/` when `fastapi.frontend` is enabled. `dc migrate` runs `fastapi.migrate_command`; `dc generatetypes` reads `/api/openapi.json` from FastAPI.

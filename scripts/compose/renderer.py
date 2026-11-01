@@ -68,14 +68,10 @@ def render_compose(target: ComposeTarget, **kwargs) -> str:
         return render_dev_compose(kwargs.get('config'))
     if target == 'prod':
         config = kwargs.get('config') or get_deploy_config()
-        if config.is_fastapi:
-            return render_prod_compose(
-                fastapi_image=kwargs['fastapi_image'],
-                config=config,
-            )
         return render_prod_compose(
-            django_image=kwargs['django_image'],
-            nextjs_image=kwargs['nextjs_image'],
+            django_image=kwargs.get('django_image', ''),
+            nextjs_image=kwargs.get('nextjs_image', ''),
+            fastapi_image=kwargs.get('fastapi_image', ''),
             config=config,
         )
     if target == 'dev_balancer':

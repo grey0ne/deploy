@@ -5,7 +5,10 @@
   "properties": {
     "stack": {
       "type": "string",
-      "enum": ["django_nextjs", "fastapi"]
+      "enum": [
+        "django_nextjs",
+        "fastapi"
+      ]
     },
     "services": {
       "type": "object",
@@ -13,13 +16,17 @@
         "celery": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" }
+            "enabled": {
+              "type": "boolean"
+            }
           }
         },
         "centrifugo": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" }
+            "enabled": {
+              "type": "boolean"
+            }
           }
         }
       }
@@ -30,13 +37,17 @@
         "postgres": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" }
+            "enabled": {
+              "type": "boolean"
+            }
           }
         },
         "minio": {
           "type": "object",
           "properties": {
-            "enabled": { "type": "boolean" }
+            "enabled": {
+              "type": "boolean"
+            }
           }
         }
       }
@@ -44,14 +55,92 @@
     "django": {
       "type": "object",
       "properties": {
-        "worker_count": { "type": "integer", "minimum": 1 }
+        "worker_count": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "fastapi": {
       "type": "object",
+      "description": "fastapi stack settings",
+      "required": [
+        "packages",
+        "app"
+      ],
       "properties": {
-        "worker_count": { "type": "integer", "minimum": 1 }
+        "worker_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Directories with a pyproject.toml installed into the image, in dependency order"
+        },
+        "app": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "uvicorn import string, e.g. main:app"
+        },
+        "app_dir": {
+          "type": "string",
+          "description": "Package used as the working dir (uvicorn import root); defaults to the last package"
+        },
+        "factory": {
+          "type": "boolean",
+          "description": "app is an application factory (uvicorn --factory)"
+        },
+        "frontend": {
+          "type": "boolean",
+          "description": "Serve spa/ (Next.js) next to FastAPI"
+        },
+        "backend_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "description": "First path segments routed to FastAPI when frontend is enabled"
+        },
+        "docker_socket": {
+          "type": "boolean",
+          "description": "Mount /var/run/docker.sock into the FastAPI container"
+        },
+        "apt_packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Debian packages installed into the FastAPI image"
+        },
+        "migrate_command": {
+          "type": "string",
+          "description": "Command run by `dc migrate` and on production deploy"
+        }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "stack": {
+            "const": "fastapi"
+          }
+        },
+        "required": [
+          "stack"
+        ]
+      },
+      "then": {
+        "required": [
+          "fastapi"
+        ]
+      }
+    }
+  ]
 }
