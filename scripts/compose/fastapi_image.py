@@ -55,13 +55,15 @@ def render_dockerfile(fastapi: FastapiConfig, *, dev: bool) -> str:
             '',
         ]
     lines.append('RUN pip install --upgrade pip --root-user-action=ignore')
-    editable = '-e ' if dev else ''
-    # One layer per package, in deploy.json order (dependencies first).
+    # One layer per package, in deploy.json order (dependencies first). Dev images install
+    # editable packages with their optional "dev" dependencies (test tools for `dc test`);
+    # pip only warns for packages without that extra.
     for package in fastapi.packages:
+        target = f'-e "/deps/{package}[dev]"' if dev else f'/deps/{package}'
         lines += [
             '',
             f'COPY {package} /deps/{package}',
-            f'RUN pip install {editable}/deps/{package} --root-user-action=ignore',
+            f'RUN pip install {target} --root-user-action=ignore',
         ]
     lines += [
         '',

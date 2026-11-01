@@ -57,7 +57,7 @@ This repo is expected to be a **git submodule** at `deploy/` in the project repo
 
 | Field | Meaning |
 |---|---|
-| `packages` (required) | Directories with a `pyproject.toml`, installed into the image in this order (`pip install -e` in dev, mounted into the container). |
+| `packages` (required) | Directories with a `pyproject.toml`, installed into the image in this order (dev: `pip install -e "<pkg>[dev]"` and mounted into the container, so `dc test` finds tools from the `dev` extra; prod: `pip install <pkg>`). |
 | `app` (required) | uvicorn import string, e.g. `main:app` or `proxy.main:create_app`. |
 | `app_dir` | Package used as the working directory / import root; defaults to the last package. |
 | `factory` | `app` is an application factory (`uvicorn --factory`). |
