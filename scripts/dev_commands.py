@@ -43,6 +43,9 @@ def up(_args: list[str]) -> None:
     if restart_balancer:
         run(balancer_compose('restart'))
     run(dev_compose('up', '-d'))
+    # Recreated containers get new IPs, while nginx keeps resolved upstream addresses for
+    # up to 30s (resolver valid=30s) and answers 502; a reload drops the cached addresses.
+    run(balancer_compose('exec', 'nginx', 'nginx', '-s', 'reload'))
 
 
 def rebuild(_args: list[str]) -> None:
