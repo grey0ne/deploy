@@ -1,6 +1,6 @@
-# django-deploy
+# deploy
 
-Shared deploy/dev tooling for projects built from independent components — Django backend, FastAPI backend, Next.js frontend — in any combination. Used as a git submodule at `<project>/deploy` by several projects — keep everything project-agnostic; project specifics come from `deploy.json` and env vars.
+Shared deploy/dev tooling (`github.com/grey0ne/deploy`, formerly `django-deploy`) for projects built from independent components — Django backend, FastAPI backend, Next.js frontend — in any combination. Used as a git submodule at `<project>/deploy` by several projects — keep everything project-agnostic; project specifics come from `deploy.json` and env vars.
 
 ## Expected host project layout
 
