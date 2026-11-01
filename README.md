@@ -93,6 +93,10 @@ python3.15 deploy/launch_command.py generate_compose  # with env.base + env.dev 
 
 Production `prod.yml` is generated during `deployprod` and copied to the server (ephemeral local copy under `deploy/compose/`).
 
+## Frontend ↔ backend
+
+The Next.js service gets `BACKEND_INTERNAL_URL` (`http://${PROJECT_NAME}-django:8000` or `http://${PROJECT_NAME}-fastapi:8080`) for server-side API requests. The frontend (and `next_utils`) does not know which backend framework is used; compatibility is defined by the HTTP API only.
+
 ## Project layout
 
 - **django_nextjs**: backend dependencies via `install-dependencies.sh` in `backend/`.

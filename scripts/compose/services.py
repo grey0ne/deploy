@@ -78,10 +78,11 @@ def dev_fastapi_service(config: DeployConfig) -> dict:
 
 
 def _nextjs_backend_environment(config: DeployConfig) -> dict:
-    """Where next_utils server-side requests go (its default is the Django service)."""
+    """Backend URL for server-side requests from Next.js; the frontend itself is backend-agnostic."""
+    name = project_env.project_name
     if config.is_fastapi:
-        return {'BACKEND_INTERNAL_URL': f'http://{project_env.project_name}-fastapi:8080'}
-    return {}
+        return {'BACKEND_INTERNAL_URL': f'http://{name}-fastapi:8080'}
+    return {'BACKEND_INTERNAL_URL': f'http://{name}-django:8000'}
 
 
 def dev_nextjs_service(config: DeployConfig) -> dict:
@@ -98,9 +99,7 @@ def dev_nextjs_service(config: DeployConfig) -> dict:
         'volumes': [f'{PROJECT_DIR}/spa:/app'],
         'networks': ['app', 'devnet'],
     }
-    environment = _nextjs_backend_environment(config)
-    if environment:
-        service['environment'] = environment
+    service['environment'] = _nextjs_backend_environment(config)
     return service
 
 
@@ -213,9 +212,7 @@ def prod_nextjs_service(config: DeployConfig, nextjs_image: str) -> dict:
         'networks': ['prodnet'],
         'env_file': _env_files_prod(),
     }
-    environment = _nextjs_backend_environment(config)
-    if environment:
-        service['environment'] = environment
+    service['environment'] = _nextjs_backend_environment(config)
     return {f'{name}-nextjs': service}
 
 
