@@ -2,13 +2,17 @@ import os
 
 from scripts.constants import (
     COMPOSE_DIR,
-    DEPLOY_DIR,
-    ENV_DIR,
+    DJANGO_DATA_DIR,
+    DJANGO_DIR,
+    FASTAPI_BUILD_CONTEXT,
+    NEXTJS_DIR,
     PROJECT_DIR,
     project_env,
 )
-from scripts.compose.fastapi_image import DEV_DOCKERFILE, uvicorn_command
-from scripts.deploy_config import DeployConfig
+from scripts.compose.fastapi_image import DEV_DOCKERFILE, FASTAPI_PORT, uvicorn_command
+from scripts.deploy_config import BackendName, DeployConfig
+
+DJANGO_PORT = 8000
 
 GENERATED_DIR = os.path.join(COMPOSE_DIR, 'generated')
 DOCKER_SOCKET = '/var/run/docker.sock'
@@ -42,13 +46,13 @@ def dev_django_service() -> dict:
         'image': f'{name}-django',
         'container_name': f'{name}-django',
         'build': {
-            'context': f'{PROJECT_DIR}/backend',
+            'context': DJANGO_DIR,
             'dockerfile': f'{PROJECT_DIR}/deploy/docker/Dockerfile.djangodev',
         },
         'env_file': _env_files_dev(),
         'volumes': [
-            f'{PROJECT_DIR}/backend:/app/src',
-            f'{PROJECT_DIR}/backend_data:/app/backend_data',
+            f'{DJANGO_DIR}:/app/src',
+            f'{DJANGO_DATA_DIR}:/app/backend_data',
         ],
         'networks': ['app', 'devnet'],
     }
@@ -66,7 +70,7 @@ def dev_fastapi_service(config: DeployConfig) -> dict:
         'image': f'{name}-fastapi',
         'container_name': f'{name}-fastapi',
         'build': {
-            'context': PROJECT_DIR,
+            'context': FASTAPI_BUILD_CONTEXT,
             'dockerfile': DEV_DOCKERFILE,
         },
         'env_file': _env_files_dev(),
@@ -77,12 +81,16 @@ def dev_fastapi_service(config: DeployConfig) -> dict:
     }
 
 
+def backend_internal_url(backend: BackendName) -> str:
+    name = project_env.project_name
+    port = FASTAPI_PORT if backend == 'fastapi' else DJANGO_PORT
+    return f'http://{name}-{backend}:{port}'
+
+
 def _nextjs_backend_environment(config: DeployConfig) -> dict:
     """Backend URL for server-side requests from Next.js; the frontend itself is backend-agnostic."""
-    name = project_env.project_name
-    if config.is_fastapi:
-        return {'BACKEND_INTERNAL_URL': f'http://{name}-fastapi:8080'}
-    return {'BACKEND_INTERNAL_URL': f'http://{name}-django:8000'}
+    assert config.nextjs.backend is not None
+    return {'BACKEND_INTERNAL_URL': backend_internal_url(config.nextjs.backend)}
 
 
 def dev_nextjs_service(config: DeployConfig) -> dict:
@@ -92,11 +100,11 @@ def dev_nextjs_service(config: DeployConfig) -> dict:
         'container_name': f'{name}-nextjs',
         'domainname': f'{name}-nextjs',
         'build': {
-            'context': f'{PROJECT_DIR}/spa',
+            'context': NEXTJS_DIR,
             'dockerfile': f'{PROJECT_DIR}/deploy/docker/Dockerfile.nextjsdev',
         },
         'env_file': _env_files_dev(),
-        'volumes': [f'{PROJECT_DIR}/spa:/app'],
+        'volumes': [f'{NEXTJS_DIR}:/app'],
         'networks': ['app', 'devnet'],
     }
     service['environment'] = _nextjs_backend_environment(config)
@@ -142,7 +150,7 @@ def dev_celery_service() -> dict:
         'domainname': f'{name}-celery',
         'container_name': f'{name}-celery',
         'command': 'celery --app application.celeryapp worker -E -l info',
-        'volumes': [f'{PROJECT_DIR}/backend:/app/src'],
+        'volumes': [f'{DJANGO_DIR}:/app/src'],
         'env_file': _env_files_dev(),
         'networks': ['app', 'devnet'],
         'profiles': ['celery'],
@@ -275,11 +283,12 @@ def _build_dev_optional_services(config: DeployConfig, services: dict) -> None:
 def build_dev_compose(config: DeployConfig) -> dict:
     name = project_env.project_name
 
-    if config.is_fastapi:
-        services: dict = {'fastapi': dev_fastapi_service(config)}
-    else:
-        services = {'django': dev_django_service()}
-    if config.has_nextjs:
+    services: dict = {}
+    if config.django.enabled:
+        services['django'] = dev_django_service()
+    if config.fastapi.enabled:
+        services['fastapi'] = dev_fastapi_service(config)
+    if config.nextjs.enabled:
         services['nextjs'] = dev_nextjs_service(config)
 
     _build_dev_optional_services(config, services)
@@ -319,12 +328,11 @@ def build_prod_compose(
     fastapi_image: str = '',
 ) -> dict:
     services: dict = {}
-
-    if config.is_fastapi:
-        services.update(prod_fastapi_service(config, fastapi_image))
-    else:
+    if config.django.enabled:
         services.update(prod_django_service(django_image, config.django_worker_count))
-    if config.has_nextjs:
+    if config.fastapi.enabled:
+        services.update(prod_fastapi_service(config, fastapi_image))
+    if config.nextjs.enabled:
         services.update(prod_nextjs_service(config, nextjs_image))
 
     if config.celery_enabled:

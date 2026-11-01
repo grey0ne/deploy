@@ -1,6 +1,6 @@
 from scripts.constants import (
-    project_env, get_docker_image_prefix, EnvConfigError, DEPLOY_DIR, BACKEND_DIR, FASTAPI_DIR,
-    BASE_ENV_FILE, DEV_ENV_FILE, COMPOSE_DIR, PROD_ENV_FILE, SPA_DIR,
+    project_env, get_docker_image_prefix, EnvConfigError, DEPLOY_DIR, DJANGO_DIR, FASTAPI_BUILD_CONTEXT,
+    BASE_ENV_FILE, DEV_ENV_FILE, COMPOSE_DIR, PROD_ENV_FILE, NEXTJS_DIR,
 )
 from scripts.compose.fastapi_image import PROD_DOCKERFILE as FASTAPI_PROD_DOCKERFILE, write_fastapi_dockerfiles
 from scripts.compose.renderer import render_prod_balancer_compose
@@ -19,7 +19,7 @@ from subprocess import PIPE
 import os
 
 def get_s3_backup_command() -> str:
-    return f"docker run -it --rm -v {BACKEND_DIR}/:/app/src -v {DEPLOY_DIR}/deploy:/app/deploy -v {DEPLOY_DIR}/backup/s3_backup:/tmp/s3_backup --network {project_env.project_name} --env-file {BASE_ENV_FILE}"
+    return f"docker run -it --rm -v {DJANGO_DIR}/:/app/src -v {DEPLOY_DIR}/deploy:/app/deploy -v {DEPLOY_DIR}/backup/s3_backup:/tmp/s3_backup --network {project_env.project_name} --env-file {BASE_ENV_FILE}"
 
 def restore_s3_backup(env_file: str):
     command = f"{get_s3_backup_command()} --env-file {env_file} {project_env.project_name}-django python /app/deploy/scripts/s3_upload.py"
@@ -92,24 +92,21 @@ def update_dev_nginx():
         render_extra_dev_domain_nginx_conf(f"{project_env.nginx_config_dir}/{project_env.project_name}_{domain}.conf.template", domain)
 
 def collect_static():
-    if get_deploy_config().is_fastapi:
+    if not get_deploy_config().django.enabled:
         return
     print_status("Collecting static files for django")
     run_command(
-        f"docker run --rm -i --env-file={BASE_ENV_FILE} --env-file={PROD_ENV_FILE} -e BUILD_STATIC=true -v ./backend:/app/src {project_env.project_name}-django python manage.py collectstatic --noinput"
+        f"docker run --rm -i --env-file={BASE_ENV_FILE} --env-file={PROD_ENV_FILE} -e BUILD_STATIC=true -v {DJANGO_DIR}:/app/src {project_env.project_name}-django python manage.py collectstatic --noinput"
     )
     print_status("Uploading static files to S3")
     run_command(
-        f"docker run --rm -i --env-file={BASE_ENV_FILE} --env-file={PROD_ENV_FILE} -v ./backend:/app/src -v {DEPLOY_DIR}:/app/deploy {project_env.project_name}-django python /app/deploy/scripts/collect_static.py"
+        f"docker run --rm -i --env-file={BASE_ENV_FILE} --env-file={PROD_ENV_FILE} -v {DJANGO_DIR}:/app/src -v {DEPLOY_DIR}:/app/deploy {project_env.project_name}-django python /app/deploy/scripts/collect_static.py"
     )
 
 def upload_images():
     print_status("Uploading images to registry")
-    config = get_deploy_config()
-    backend = "fastapi" if config.is_fastapi else "django"
-    run_command(f"docker push {get_docker_image_prefix()}-{backend}")
-    if config.has_nextjs:
-        run_command(f"docker push {get_docker_image_prefix()}-nextjs")
+    for component in get_deploy_config().components:
+        run_command(f"docker push {get_docker_image_prefix()}-{component}")
 
 def login_registry():
     run_command(get_login_registry_script())
@@ -124,18 +121,16 @@ def build_image(service: str, dockerfile: str, context: str):
 
 def build_images():
     config = get_deploy_config()
-    if config.is_fastapi:
+    if config.django.enabled:
+        build_image("django", f"{DEPLOY_DIR}/docker/Dockerfile.djangoprod", DJANGO_DIR)
+    if config.fastapi.enabled:
         write_fastapi_dockerfiles(config)
-        build_image("fastapi", FASTAPI_PROD_DOCKERFILE, FASTAPI_DIR)
-    else:
-        build_image("django", f"{DEPLOY_DIR}/docker/Dockerfile.djangoprod", BACKEND_DIR)
-    if not config.has_nextjs:
-        return
-
-    # Nextjs build requires env file to hardcode NEXT_PUBLIC_* variables
-    create_next_public_env_file()
-    build_image("nextjs", f"{DEPLOY_DIR}/docker/Dockerfile.nextjsprod", SPA_DIR)
-    run_command(f"rm {SPA_DIR}/.env")
+        build_image("fastapi", FASTAPI_PROD_DOCKERFILE, FASTAPI_BUILD_CONTEXT)
+    if config.nextjs.enabled:
+        # Nextjs build requires env file to hardcode NEXT_PUBLIC_* variables
+        create_next_public_env_file()
+        build_image("nextjs", f"{DEPLOY_DIR}/docker/Dockerfile.nextjsprod", NEXTJS_DIR)
+        run_command(f"rm {NEXTJS_DIR}/.env")
 
 
 def gen_cert(name:str, domain:str):
@@ -161,7 +156,7 @@ def generate_dev_certs():
     gen_cert(project_env.project_name, project_env.project_domain)
     add_cert_to_trusted(f"{project_env.ssl_certs_dir}/{project_env.project_name}.crt")
     update_hosts(project_env.project_domain)
-    if not config.is_fastapi:
+    if config.django.enabled:
         gen_cert(f"media_{project_env.project_name}", f"media.{project_env.project_domain}")
         add_cert_to_trusted(f"{project_env.ssl_certs_dir}/media_{project_env.project_name}.crt")
         update_hosts(f"media.{project_env.project_domain}")
@@ -232,7 +227,7 @@ def production_setup():
 
 def create_next_public_env_file() -> None:
     """
-    Gets all environment variables with prefix "NEXT_PUBLIC_" and writes them to "/spa/.env"
+    Gets all environment variables with prefix "NEXT_PUBLIC_" and writes them to "nextjs_frontend/.env"
     """
     print_status("Creating .env file with NEXT_PUBLIC_ environment variables")
     
@@ -242,8 +237,8 @@ def create_next_public_env_file() -> None:
         if key.startswith("NEXT_PUBLIC_"):
             next_public_vars[key] = value
     
-    # Write environment variables to /spa/.env
-    env_file_path = os.path.join(SPA_DIR, ".env")
+    # Write environment variables to nextjs_frontend/.env
+    env_file_path = os.path.join(NEXTJS_DIR, ".env")
     with open(env_file_path, 'w') as f:
         for key, value in next_public_vars.items():
             f.write(f"{key}={value}\n")

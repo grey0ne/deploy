@@ -3,12 +3,108 @@
   "title": "Deploy configuration",
   "type": "object",
   "properties": {
-    "stack": {
-      "type": "string",
-      "enum": [
-        "django_nextjs",
-        "fastapi"
+    "django": {
+      "type": "object",
+      "description": "Django backend in django_backend/ (enabled when present)",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "worker_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "description": "First path segments routed to Django (default: admin, api, idp, login, complete, static, s)"
+        }
+      }
+    },
+    "fastapi": {
+      "type": "object",
+      "description": "FastAPI backend (enabled when present); code in fastapi_backend/ by default",
+      "properties": {
+        "worker_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Directories with a pyproject.toml installed into the image, in dependency order (default: [\"fastapi_backend\"])"
+        },
+        "app": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "uvicorn import string, e.g. main:app"
+        },
+        "app_dir": {
+          "type": "string",
+          "description": "Package used as the working dir (uvicorn import root); defaults to the last package"
+        },
+        "factory": {
+          "type": "boolean",
+          "description": "app is an application factory (uvicorn --factory)"
+        },
+        "docker_socket": {
+          "type": "boolean",
+          "description": "Mount /var/run/docker.sock into the FastAPI container"
+        },
+        "apt_packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Debian packages installed into the FastAPI image"
+        },
+        "migrate_command": {
+          "type": "string",
+          "description": "Command run by `dc migrate` and on production deploy"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "description": "First path segments routed to FastAPI (default: api, ws, health, docs, openapi.json)"
+        }
+      },
+      "required": [
+        "app"
       ]
+    },
+    "nextjs": {
+      "type": "object",
+      "description": "Next.js frontend in nextjs_frontend/ (enabled when present); serves all paths not routed to a backend",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "backend": {
+          "enum": [
+            "django",
+            "fastapi"
+          ],
+          "description": "Backend for server-side requests (BACKEND_INTERNAL_URL); required when both backends are enabled"
+        }
+      }
+    },
+    "default_backend": {
+      "enum": [
+        "django",
+        "fastapi"
+      ],
+      "description": "Serves extra domains and, without nextjs, unmatched paths; required when both backends are enabled"
     },
     "services": {
       "type": "object",
@@ -51,96 +147,7 @@
           }
         }
       }
-    },
-    "django": {
-      "type": "object",
-      "properties": {
-        "worker_count": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
-    },
-    "fastapi": {
-      "type": "object",
-      "description": "fastapi stack settings",
-      "required": [
-        "packages",
-        "app"
-      ],
-      "properties": {
-        "worker_count": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "packages": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "description": "Directories with a pyproject.toml installed into the image, in dependency order"
-        },
-        "app": {
-          "type": "string",
-          "pattern": "^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$",
-          "description": "uvicorn import string, e.g. main:app"
-        },
-        "app_dir": {
-          "type": "string",
-          "description": "Package used as the working dir (uvicorn import root); defaults to the last package"
-        },
-        "factory": {
-          "type": "boolean",
-          "description": "app is an application factory (uvicorn --factory)"
-        },
-        "frontend": {
-          "type": "boolean",
-          "description": "Serve spa/ (Next.js) next to FastAPI"
-        },
-        "backend_paths": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_.-]+$"
-          },
-          "description": "First path segments routed to FastAPI when frontend is enabled"
-        },
-        "docker_socket": {
-          "type": "boolean",
-          "description": "Mount /var/run/docker.sock into the FastAPI container"
-        },
-        "apt_packages": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Debian packages installed into the FastAPI image"
-        },
-        "migrate_command": {
-          "type": "string",
-          "description": "Command run by `dc migrate` and on production deploy"
-        }
-      }
     }
   },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "stack": {
-            "const": "fastapi"
-          }
-        },
-        "required": [
-          "stack"
-        ]
-      },
-      "then": {
-        "required": [
-          "fastapi"
-        ]
-      }
-    }
-  ]
+  "additionalProperties": false
 }

@@ -9,7 +9,7 @@ server {
 }
 """
 
-NGINX_BASE_REDIRECT_FASTAPI_TEMPLATE = """
+NGINX_BASE_REDIRECT_NO_MEDIA_TEMPLATE = """
 server {
     listen 80;
     server_name {PROJECT_DOMAIN} {EXTRA_DOMAINS};
@@ -76,93 +76,6 @@ server {
 
 }
 """
-
-NGINX_DEV_APP_TEMPLATE = """
-server {
-    listen 443 ssl;
-    access_log /dev/stdout;
-
-    server_name {PROJECT_DOMAIN};
-
-    ssl_certificate /app/ssl/{PROJECT_NAME}.crt;
-    ssl_certificate_key /app/ssl/{PROJECT_NAME}.key;
-
-    client_max_body_size 50000k;
-
-    gzip on;
-    gzip_min_length 1000;
-    gzip_proxied any;
-    gzip_types text/css application/x-javascript;
-
-    resolver $NGINX_LOCAL_RESOLVERS valid=30s;
-
-    location ~ ^/(admin|api|idp|login|complete|static|s)/ {
-        set $django{PROJECT_NAME} {PROJECT_NAME}-django;
-        proxy_buffer_size   128k;
-        proxy_buffers   4 256k;
-        proxy_busy_buffers_size   256k;
-        proxy_connect_timeout       120;
-        proxy_send_timeout          120;
-        proxy_read_timeout          120;
-        send_timeout                120;
-        proxy_pass http://$django{PROJECT_NAME}:8000;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-    }
-
-    location / {
-        set $nextjs{PROJECT_NAME} {PROJECT_NAME}-nextjs;
-        proxy_pass http://$nextjs{PROJECT_NAME}:3000;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $http_host;
-        proxy_set_header X-Forwarded-Proto 'https';
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-"""
-
-NGINX_EXTRA_DEV_DOMAINS_TEMPLATE = """
-server {
-    listen 443 ssl;
-    access_log /dev/stdout;
-
-    server_name {DOMAIN};
-
-    ssl_certificate /app/ssl/{PROJECT_NAME}_{DOMAIN}.crt;
-    ssl_certificate_key /app/ssl/{PROJECT_NAME}_{DOMAIN}.key;
-
-    client_max_body_size 50000k;
-
-    gzip on;
-    gzip_min_length 1000;
-    gzip_proxied any;
-    gzip_types text/css application/x-javascript;
-
-    resolver $NGINX_LOCAL_RESOLVERS valid=30s;
-
-    location ~ / {
-        set $django{PROJECT_NAME} {PROJECT_NAME}-django;
-        proxy_buffer_size   128k;
-        proxy_buffers   4 256k;
-        proxy_busy_buffers_size   256k;
-        proxy_connect_timeout       120;
-        proxy_send_timeout          120;
-        proxy_read_timeout          120;
-        send_timeout                120;
-        proxy_pass http://$django{PROJECT_NAME}:8000;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-    }
-}
-"""
-
 
 CENTRIFUGO_DEV_TEMPLATE = """
 server {
@@ -241,365 +154,10 @@ server {
 }
 """
 
-APP_PROD_TEMPLATE = """
-server {
-    listen 80;
-    server_name {PROJECT_DOMAIN};
 
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-    
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl;
-    access_log /dev/stdout;
-
-    server_name {PROJECT_DOMAIN};
-
-    ssl_certificate /etc/letsencrypt/live/{PROJECT_DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/{PROJECT_DOMAIN}/privkey.pem;
-
-    client_max_body_size 50000k;
-
-    gzip on;
-    gzip_min_length 1000;
-    gzip_proxied any;
-    gzip_types text/css application/x-javascript;
-
-    # We need dynamic resolver in order to load nginx without upstreams.
-    # IP is valid for docker compose resolver
-    resolver 127.0.0.11 valid=30s;
-
-    location ~ ^/(admin|api|idp|login|complete|static|s)/ {
-        set $django{PROJECT_NAME} {PROJECT_NAME}-django;
-        proxy_pass http://$django{PROJECT_NAME}:8000;
-        proxy_buffer_size   128k;
-        proxy_buffers   4 256k;
-        proxy_connect_timeout       120;
-        proxy_send_timeout          120;
-        proxy_read_timeout          120;
-        send_timeout                120;
-        proxy_busy_buffers_size   256k;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-    }
-
-
-    location / {
-        set $nextjs{PROJECT_NAME} {PROJECT_NAME}-nextjs;
-        proxy_pass http://$nextjs{PROJECT_NAME}:3000;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $http_host;
-        proxy_set_header X-Forwarded-Proto 'https';
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-"""
-
-
-EXTRA_DOMAIN_PROD_TEMPLATE = """
-server {
-    listen 80;
-    server_name {DOMAIN};
-
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-    
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl;
-    access_log /dev/stdout;
-
-    server_name {DOMAIN};
-
-    ssl_certificate /etc/letsencrypt/live/{DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/{DOMAIN}/privkey.pem;
-
-    client_max_body_size 50000k;
-
-    gzip on;
-    gzip_min_length 1000;
-    gzip_proxied any;
-    gzip_types text/css application/x-javascript;
-
-    # We need dynamic resolver in order to load nginx without upstreams.
-    # IP is valid for docker compose resolver
-    resolver 127.0.0.11 valid=30s;
-
-    location / {
-        set $django{PROJECT_NAME} {PROJECT_NAME}-django;
-        proxy_pass http://$django{PROJECT_NAME}:8000;
-        proxy_buffer_size   128k;
-        proxy_buffers   4 256k;
-        proxy_connect_timeout       120;
-        proxy_send_timeout          120;
-        proxy_read_timeout          120;
-        send_timeout                120;
-        proxy_busy_buffers_size   256k;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-    }
-}
-"""
-
-FASTAPI_DEV_APP_TEMPLATE = """
-server {
-    listen 443 ssl;
-    access_log /dev/stdout;
-
-    server_name {PROJECT_DOMAIN};
-
-    ssl_certificate /app/ssl/{PROJECT_NAME}.crt;
-    ssl_certificate_key /app/ssl/{PROJECT_NAME}.key;
-
-    client_max_body_size 50000k;
-
-    gzip on;
-    gzip_min_length 1000;
-    gzip_proxied any;
-    gzip_types text/css application/x-javascript application/json;
-
-    resolver $NGINX_LOCAL_RESOLVERS valid=30s;
-
-    location /ws {
-        set $fastapi{PROJECT_NAME} {PROJECT_NAME}-fastapi;
-        proxy_pass http://$fastapi{PROJECT_NAME}:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-        proxy_connect_timeout       300;
-        proxy_send_timeout          300;
-        proxy_read_timeout          300;
-        send_timeout                300;
-    }
-
-    location / {
-        set $fastapi{PROJECT_NAME} {PROJECT_NAME}-fastapi;
-        proxy_pass http://$fastapi{PROJECT_NAME}:8080;
-        proxy_buffer_size   128k;
-        proxy_buffers   4 256k;
-        proxy_busy_buffers_size   256k;
-        proxy_connect_timeout       300;
-        proxy_send_timeout          300;
-        proxy_read_timeout          300;
-        send_timeout                300;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-    }
-}
-"""
-
-FASTAPI_PROD_APP_TEMPLATE = """
-server {
-    listen 80;
-    server_name {PROJECT_DOMAIN};
-
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl;
-    access_log /dev/stdout;
-
-    server_name {PROJECT_DOMAIN};
-
-    ssl_certificate /etc/letsencrypt/live/{PROJECT_DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/{PROJECT_DOMAIN}/privkey.pem;
-
-    client_max_body_size 50000k;
-
-    gzip on;
-    gzip_min_length 1000;
-    gzip_proxied any;
-    gzip_types text/css application/x-javascript application/json;
-
-    resolver 127.0.0.11 valid=30s;
-
-    location /ws {
-        set $fastapi{PROJECT_NAME} {PROJECT_NAME}-fastapi;
-        proxy_pass http://$fastapi{PROJECT_NAME}:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-        proxy_connect_timeout       300;
-        proxy_send_timeout          300;
-        proxy_read_timeout          300;
-        send_timeout                300;
-    }
-
-    location / {
-        set $fastapi{PROJECT_NAME} {PROJECT_NAME}-fastapi;
-        proxy_pass http://$fastapi{PROJECT_NAME}:8080;
-        proxy_buffer_size   128k;
-        proxy_buffers   4 256k;
-        proxy_busy_buffers_size   256k;
-        proxy_connect_timeout       300;
-        proxy_send_timeout          300;
-        proxy_read_timeout          300;
-        send_timeout                300;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-    }
-}
-"""
-
-NGINX_EXTRA_DEV_DOMAINS_FASTAPI_TEMPLATE = """
-server {
-    listen 443 ssl;
-    access_log /dev/stdout;
-
-    server_name {DOMAIN};
-
-    ssl_certificate /app/ssl/{PROJECT_NAME}_{DOMAIN}.crt;
-    ssl_certificate_key /app/ssl/{PROJECT_NAME}_{DOMAIN}.key;
-
-    client_max_body_size 50000k;
-
-    gzip on;
-    gzip_min_length 1000;
-    gzip_proxied any;
-    gzip_types text/css application/x-javascript application/json;
-
-    resolver $NGINX_LOCAL_RESOLVERS valid=30s;
-
-    location /ws {
-        set $fastapi{PROJECT_NAME} {PROJECT_NAME}-fastapi;
-        proxy_pass http://$fastapi{PROJECT_NAME}:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-        proxy_connect_timeout       300;
-        proxy_send_timeout          300;
-        proxy_read_timeout          300;
-        send_timeout                300;
-    }
-
-    location / {
-        set $fastapi{PROJECT_NAME} {PROJECT_NAME}-fastapi;
-        proxy_pass http://$fastapi{PROJECT_NAME}:8080;
-        proxy_buffer_size   128k;
-        proxy_buffers   4 256k;
-        proxy_busy_buffers_size   256k;
-        proxy_connect_timeout       300;
-        proxy_send_timeout          300;
-        proxy_read_timeout          300;
-        send_timeout                300;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-    }
-}
-"""
-
-EXTRA_DOMAIN_PROD_FASTAPI_TEMPLATE = """
-server {
-    listen 80;
-    server_name {DOMAIN};
-
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl;
-    access_log /dev/stdout;
-
-    server_name {DOMAIN};
-
-    ssl_certificate /etc/letsencrypt/live/{DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/{DOMAIN}/privkey.pem;
-
-    client_max_body_size 50000k;
-
-    gzip on;
-    gzip_min_length 1000;
-    gzip_proxied any;
-    gzip_types text/css application/x-javascript application/json;
-
-    resolver 127.0.0.11 valid=30s;
-
-    location /ws {
-        set $fastapi{PROJECT_NAME} {PROJECT_NAME}-fastapi;
-        proxy_pass http://$fastapi{PROJECT_NAME}:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-        proxy_connect_timeout       300;
-        proxy_send_timeout          300;
-        proxy_read_timeout          300;
-        send_timeout                300;
-    }
-
-    location / {
-        set $fastapi{PROJECT_NAME} {PROJECT_NAME}-fastapi;
-        proxy_pass http://$fastapi{PROJECT_NAME}:8080;
-        proxy_buffer_size   128k;
-        proxy_buffers   4 256k;
-        proxy_busy_buffers_size   256k;
-        proxy_connect_timeout       300;
-        proxy_send_timeout          300;
-        proxy_read_timeout          300;
-        send_timeout                300;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Scheme $scheme;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto 'https';
-    }
-}
-"""
-# fastapi stack with frontend: backend paths go to FastAPI (unbuffered for SSE, with
-# WebSocket upgrade), everything else to Next.js. {SSL_CERTIFICATE}/{SSL_CERTIFICATE_KEY},
-# {RESOLVER} and {BACKEND_PATHS} (regex alternation) differ between dev and prod.
-FASTAPI_NEXTJS_SERVER_TEMPLATE = """
+# Application server: composed from location blocks (see nginx/configuration.py).
+# {SSL_CERTIFICATE}/{SSL_CERTIFICATE_KEY} and {RESOLVER} differ between dev and prod.
+APP_SERVER_TEMPLATE = """
 server {
     listen 443 ssl;
     access_log /dev/stdout;
@@ -616,9 +174,48 @@ server {
     gzip_proxied any;
     gzip_types text/css application/x-javascript application/json;
 
+    # Dynamic resolver so nginx starts without the upstream containers.
     resolver {RESOLVER} valid=30s;
+{LOCATIONS}
+}
+"""
 
-    location ~ ^/({BACKEND_PATHS})(/|$) {
+PROD_HTTP_TEMPLATE = """
+server {
+    listen 80;
+    server_name {DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+"""
+
+# {MATCH} is "/" or "~ ^/(api|admin)(/|$)".
+DJANGO_LOCATION_TEMPLATE = """
+    location {MATCH} {
+        set $django{PROJECT_NAME} {PROJECT_NAME}-django;
+        proxy_pass http://$django{PROJECT_NAME}:8000;
+        proxy_buffer_size   128k;
+        proxy_buffers   4 256k;
+        proxy_busy_buffers_size   256k;
+        proxy_connect_timeout       120;
+        proxy_send_timeout          120;
+        proxy_read_timeout          120;
+        send_timeout                120;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Scheme $scheme;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto 'https';
+    }
+"""
+
+FASTAPI_LOCATION_TEMPLATE = """
+    location {MATCH} {
         set $fastapi{PROJECT_NAME} {PROJECT_NAME}-fastapi;
         proxy_pass http://$fastapi{PROJECT_NAME}:8080;
         proxy_http_version 1.1;
@@ -636,8 +233,10 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto 'https';
     }
+"""
 
-    location / {
+NEXTJS_LOCATION_TEMPLATE = """
+    location {MATCH} {
         set $nextjs{PROJECT_NAME} {PROJECT_NAME}-nextjs;
         proxy_pass http://$nextjs{PROJECT_NAME}:3000;
         proxy_set_header X-Real-IP $remote_addr;
@@ -648,20 +247,4 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
     }
-}
-"""
-
-FASTAPI_NEXTJS_PROD_HTTP_TEMPLATE = """
-server {
-    listen 80;
-    server_name {DOMAIN};
-
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
 """

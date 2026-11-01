@@ -49,12 +49,17 @@ generate_compose_files() {
 
 generate_compose_files
 
-deploy_config_value() {
-    PYTHONPATH="$DEPLOY_DIR" python3.15 -c "from scripts.deploy_config import get_deploy_config; c = get_deploy_config(); print($1)"
-}
+# Enabled components from deploy.json: DJANGO_ENABLED / FASTAPI_ENABLED / NEXTJS_ENABLED (yes|no),
+# COMPONENTS (dev compose service names), FASTAPI_MIGRATE_COMMAND, OPENAPI_URL.
+eval "$(PYTHONPATH="$DEPLOY_DIR" python3.15 "$DEPLOY_DIR/scripts/shell_config.py")"
 
-STACK=$(deploy_config_value "c.stack")
-HAS_NEXTJS=$(deploy_config_value "'yes' if c.has_nextjs else 'no'")
+require_component() {
+    local name="$1" enabled="$2"
+    if [ "$enabled" != "yes" ]; then
+        echo "Error: '$name' is not enabled in deploy.json" >&2
+        exit 1
+    fi
+}
 
 DEV_COMPOSE="docker-compose -f $GENERATED_COMPOSE_DIR/dev.yml --env-file=$ENV_DIR/env.base --env-file=$ENV_DIR/env.dev"
 BALANCER_COMPOSE="docker-compose -f $GENERATED_COMPOSE_DIR/dev_balancer.yml"
@@ -82,29 +87,21 @@ PROD_DIR="/app/$PROJECT_NAME"
 DOCKER_IMAGE_PREFIX="$REGISTRY_HOSTNAME/$REGISTRY_NAMESPACE/$PROJECT_NAME"
 
 if [ $1 = "django" ]; then
+    require_component django "$DJANGO_ENABLED"
     $DEV_COMPOSE run --rm django python manage.py "${@:2}"
 elif [ $1 = "rebuild" ]; then
     $DEV_COMPOSE down
-    if [ "$STACK" = "fastapi" ]; then
-        $DEV_COMPOSE build fastapi
-    else
-        $DEV_COMPOSE build django
-    fi
-    if [ "$HAS_NEXTJS" = "yes" ]; then
-        $DEV_COMPOSE build nextjs
+    $DEV_COMPOSE build $COMPONENTS
+    if [ "$NEXTJS_ENABLED" = "yes" ]; then
         $DEV_COMPOSE run --rm -i nextjs sh -c "rm -rf node_modules package-lock.json && npm install"
     fi
     $DEV_COMPOSE up -d
 elif [ $1 = "migrate" ]; then
-    if [ "$STACK" = "fastapi" ]; then
-        MIGRATE_COMMAND=$(deploy_config_value "c.fastapi.migrate_command")
-        if [ -z "$MIGRATE_COMMAND" ]; then
-            echo "deploy.json has no fastapi.migrate_command" >&2
-            exit 1
-        fi
-        $DEV_COMPOSE run --rm fastapi sh -c "$MIGRATE_COMMAND"
-    else
+    if [ "$DJANGO_ENABLED" = "yes" ]; then
         $DEV_COMPOSE run --rm django python manage.py migrate "${@:2}"
+    fi
+    if [ "$FASTAPI_ENABLED" = "yes" ] && [ -n "$FASTAPI_MIGRATE_COMMAND" ]; then
+        $DEV_COMPOSE run --rm fastapi sh -c "$FASTAPI_MIGRATE_COMMAND"
     fi
 elif [ $1 = "up" ]; then
     $BALANCER_COMPOSE up -d
@@ -112,27 +109,26 @@ elif [ $1 = "up" ]; then
 elif [ $1 = "sh" ]; then
     $DEV_COMPOSE exec $2 bash
 elif [ $1 = "test" ]; then
-    if [ "$STACK" = "fastapi" ]; then
-        $DEV_COMPOSE run --rm fastapi pytest
-    else
+    if [ "$DJANGO_ENABLED" = "yes" ]; then
         $DEV_COMPOSE run --rm django pytest
     fi
+    if [ "$FASTAPI_ENABLED" = "yes" ]; then
+        $DEV_COMPOSE run --rm fastapi pytest
+    fi
 elif [ $1 = "format" ]; then
+    require_component django "$DJANGO_ENABLED"
     $DEV_COMPOSE run --rm django sh -c 'isort . && black .'
 elif [ $1 = "tmux" ]; then
-    $DEPLOY_DIR/tmux_dev.sh
+    $DEPLOY_DIR/tmux_dev.sh $COMPONENTS
 elif [ $1 = "devsuperuser" ]; then
+    require_component django "$DJANGO_ENABLED"
     $DEV_COMPOSE run --rm django sh -c "export DJANGO_SUPERUSER_PASSWORD='devpass' && python manage.py createsuperuser --noinput --username $2 --email $2@$2.com"
 elif [ $1 = "buildtest" ]; then
     docker build . --file=dev-scripts/Dockerfile.playwright --tag $PROJECT_NAME-playwright
 elif [ $1 = "runtest" ]; then
     docker run -it --rm --hostname=$PROJECT_NAME-tests --name=$PROJECT_NAME-tests -v .:/app/src --ipc=host --network=$PROJECT_NAME $PROJECT_NAME-playwright npx playwright test
 elif [ $1 = "generatetypes" ]; then
-    if [ "$STACK" = "fastapi" ]; then
-        OPENAPI_URL="http://${PROJECT_NAME}-fastapi:8080/api/openapi.json"
-    else
-        OPENAPI_URL="http://${PROJECT_NAME}-django:8000/api/openapi.json"
-    fi
+    require_component nextjs "$NEXTJS_ENABLED"
     $DEV_COMPOSE exec nextjs npx -y openapi-typescript $OPENAPI_URL --output api/apiTypes.ts
 elif [ $1 = "dumpprod" ]; then
     load_prod_env
@@ -153,9 +149,11 @@ elif [ $1 = "updatenginx" ]; then
 elif [ $1 = "nginx" ]; then
     $BALANCER_COMPOSE "${@:2}"
 elif [ $1 = "fastapiprod" ]; then
+    require_component fastapi "$FASTAPI_ENABLED"
     load_prod_env
     ssh root@$PROJECT_DOMAIN "docker run --rm -i --env-file=$PROD_DIR/env.base --env-file=$PROD_DIR/env $DOCKER_IMAGE_PREFIX-fastapi ${@:2}"
 elif [ $1 = "djangoprod" ]; then
+    require_component django "$DJANGO_ENABLED"
     load_prod_env
     ssh root@$PROJECT_DOMAIN "docker run --rm -i --env-file=$PROD_DIR/env.base --env-file=$PROD_DIR/env $DOCKER_IMAGE_PREFIX-django python manage.py ${@:2}"
 elif [ $1 = "logsprod" ]; then

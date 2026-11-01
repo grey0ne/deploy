@@ -1,7 +1,7 @@
 """Dockerfiles for the fastapi stack, generated from deploy.json ``fastapi`` settings.
 
 The build context is the project root; a Dockerfile-specific ``.dockerignore`` limits it to the
-configured packages so the rest of the repo (spa/node_modules, virtualenvs, data) is never sent.
+configured packages so the rest of the repo (frontend node_modules, virtualenvs, data) is never sent.
 """
 import json
 import os
@@ -83,7 +83,7 @@ def render_dockerignore(fastapi: FastapiConfig) -> str:
 
 
 def write_fastapi_dockerfiles(config: DeployConfig) -> None:
-    if not config.is_fastapi:
+    if not config.fastapi.enabled:
         return
     os.makedirs(GENERATED_DIR, exist_ok=True)
     for path, dev in ((DEV_DOCKERFILE, True), (PROD_DOCKERFILE, False)):

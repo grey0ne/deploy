@@ -29,7 +29,7 @@ def _write_compose(filename: str, data: dict) -> str:
 
 def render_dev_compose(config: DeployConfig | None = None) -> str:
     config = config or get_deploy_config()
-    print_status(f'Rendering dev compose (stack={config.stack})')
+    print_status(f'Rendering dev compose (components: {", ".join(config.components)})')
     return _write_compose('dev.yml', build_dev_compose(config))
 
 
@@ -41,7 +41,7 @@ def render_prod_compose(
 ) -> str:
     config = config or get_deploy_config()
     print_status(
-        f'Rendering production compose (stack={config.stack}, '
+        f'Rendering production compose (components: {", ".join(config.components)}, '
         f'celery={config.celery_enabled}, centrifugo={config.centrifugo_enabled})'
     )
     data = build_prod_compose(

@@ -12,7 +12,7 @@ from scripts.printing import print_status
 from scripts.constants import (
     project_env, get_docker_image_prefix, check_registry_config, DEPLOY_DIR, COMPOSE_DIR, BASE_ENV_FILE, PROD_ENV_FILE,
 )
-from scripts.deploy_config import get_deploy_config
+from scripts.deploy_config import DeployConfig, get_deploy_config
 from scripts.release import release_version, update_version
 from scripts.docker_compose import render_production_compose_file
 from scripts.nginx.configuration import (
@@ -48,6 +48,29 @@ def update_prod_nginx():
     run_remote_commands([RELOAD_NGINX, ])
 
 
+def _run_in_prod_image(component: str, command: str) -> None:
+    run_remote_commands([
+        f"docker run --rm -i --env-file={project_env.prod_app_path}/env.base "
+        f"--env-file={project_env.prod_app_path}/env {get_docker_image_prefix()}-{component} "
+        f"{command}"
+    ])
+
+
+def run_backend_migrations(config: DeployConfig) -> None:
+    """Migrations of every enabled backend, independently of each other."""
+    if config.django.enabled:
+        print_status("Update django image for migrations")
+        run_remote_commands([f"docker pull {get_docker_image_prefix()}-django"])
+        print_status("Perform django migrations")
+        _run_in_prod_image("django", "python manage.py migrate")
+    if config.fastapi.enabled:
+        print_status("Update fastapi image")
+        run_remote_commands([f"docker pull {get_docker_image_prefix()}-fastapi"])
+        if config.fastapi.migrate_command:
+            print_status("Perform fastapi migrations")
+            _run_in_prod_image("fastapi", f"sh -c {shlex.quote(config.fastapi.migrate_command)}")
+
+
 def deploy_production():
     check_registry_config()
     issue_prod_certs()
@@ -61,22 +84,21 @@ def deploy_production():
     # Release version after build to avoid debug releases
     release_version(new_version)
 
-    if config.is_fastapi:
-        fastapi_image = get_image_hash(f'{get_docker_image_prefix()}-fastapi')
-        nextjs_image = get_image_hash(f'{get_docker_image_prefix()}-nextjs') if config.has_nextjs else ''
-        render_production_compose_file(fastapi_image=fastapi_image, nextjs_image=nextjs_image)
-        print_status(f"Deploying to {project_env.project_domain}")
-        run_remote_commands([f"mkdir -p {project_env.prod_app_path}"])
-    else:
-        collect_static()
-        django_image = get_image_hash(f'{get_docker_image_prefix()}-django')
-        nextjs_image = get_image_hash(f'{get_docker_image_prefix()}-nextjs')
-        render_production_compose_file(django_image=django_image, nextjs_image=nextjs_image)
-        print_status(f"Deploying to {project_env.project_domain}")
-        run_remote_commands([
-            f"mkdir -p {project_env.prod_app_path}",
-            f"mkdir -p {project_env.prod_app_path}/backend_data",
-        ])
+    collect_static()
+    images = {
+        component: get_image_hash(f'{get_docker_image_prefix()}-{component}')
+        for component in config.components
+    }
+    render_production_compose_file(
+        django_image=images.get('django', ''),
+        fastapi_image=images.get('fastapi', ''),
+        nextjs_image=images.get('nextjs', ''),
+    )
+    print_status(f"Deploying to {project_env.project_domain}")
+    remote_dirs = [f"mkdir -p {project_env.prod_app_path}"]
+    if config.django.enabled:
+        remote_dirs.append(f"mkdir -p {project_env.prod_app_path}/backend_data")
+    run_remote_commands(remote_dirs)
 
     print_status(f"Copying compose files to {project_env.project_domain}")
 
@@ -90,25 +112,7 @@ def deploy_production():
     copy_to_remote(PROD_ENV_FILE, f"{project_env.prod_app_path}/env")
     run_remote_commands([get_init_swarm_script()])
 
-    if config.is_fastapi:
-        print_status("Update fastapi image")
-        run_remote_commands([f"docker pull {get_docker_image_prefix()}-fastapi"])
-        if config.fastapi.migrate_command:
-            print_status("Perform migrations")
-            run_remote_commands([
-                f"docker run --rm -i --env-file={project_env.prod_app_path}/env.base "
-                f"--env-file={project_env.prod_app_path}/env {get_docker_image_prefix()}-fastapi "
-                f"sh -c {shlex.quote(config.fastapi.migrate_command)}"
-            ])
-    else:
-        print_status("Update django image for migrations")
-        run_remote_commands([f"docker pull {get_docker_image_prefix()}-django"])
-        print_status("Perform migrations")
-        run_remote_commands([
-            f"docker run --rm -i --env-file={project_env.prod_app_path}/env.base "
-            f"--env-file={project_env.prod_app_path}/env {get_docker_image_prefix()}-django "
-            f"python manage.py migrate"
-        ])
+    run_backend_migrations(config)
 
     update_swarm(f'{project_env.prod_app_path}/prod.yml', project_env.project_name)
 

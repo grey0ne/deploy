@@ -1,4 +1,5 @@
 import os
+from dataclasses import replace
 
 from scripts.compose.renderer import render_prod_compose
 from scripts.constants import COMPOSE_DIR
@@ -15,9 +16,9 @@ def render_production_compose_file(
 ) -> None:
     config = get_deploy_config()
     if django_worker_count is not None:
-        config.django_worker_count = django_worker_count
+        config = replace(config, django=replace(config.django, worker_count=django_worker_count))
     if fastapi_worker_count is not None:
-        config.fastapi_worker_count = fastapi_worker_count
+        config = replace(config, fastapi=replace(config.fastapi, worker_count=fastapi_worker_count))
     print_status('Rendering production compose file for deploy')
     render_prod_compose(
         django_image=django_image,
