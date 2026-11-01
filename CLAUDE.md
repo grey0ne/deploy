@@ -20,15 +20,20 @@ Scripts resolve paths relative to this layout and must be run from the project r
 
 ## Contents
 
-- `dc` — main CLI (bash). Sources `environment/env.base` + `env.dev` (+ optional `.env`), regenerates compose files on every run, then runs the command. Simple commands are inline; `PY_COMMANDS` are dispatched to `launch_command.py` → `scripts/commands_list.py` (with `PYTHONPATH=deploy`). Unknown args fall through to `docker-compose` with the generated dev compose file. Host Python is invoked as `python3.15` (macOS system `python3` is too old).
+- `dc` — main CLI: a `python3.15` script (macOS system `python3` is too old) that calls `scripts/cli.py`. Every command is one `Command` in `cli.COMMANDS` with its handler (`module:function`), the environment it loads (`dev`: env.base + env.dev, `prod`: env.base + env.prod, each + optional `.env`; `None`), whether it uses the dev compose files (regenerated first — production commands never do) and a required component. Unknown args fall through to `docker compose` with the generated dev compose file. Add a command there, never in shell scripts.
 - `pc` — wrapper meant to be copied to `/usr/local/bin/pc` (runs `./deploy/dc`).
 - `docker/` — `Dockerfile.django{dev,prod}`, `Dockerfile.nextjs{dev,prod}`, `Dockerfile.devcontainer`. FastAPI Dockerfiles are generated from `deploy.json` by `scripts/compose/fastapi_image.py` into `compose/generated/`.
 - `compose/generated/` — dev and balancer compose files, generated from `deploy.json` (gitignored, never edit). `COMPOSE_PROFILES` is deprecated in favour of `deploy.json` `services.*.enabled`.
 - `scripts/` — Python deploy tooling (stdlib only, run with host `python3.15`):
-  - `constants.py` — `Environment` dataclass built from env vars (`project_env`)
+  - `cli.py` — command registry, dispatch and error reporting (no traceback for config/env errors, exit code of a failed subprocess)
+  - `env_files.py` — parses and loads the env files once per run (quotes, `export`, `$VAR`; `~` is expanded in `constants.py`)
+  - `paths.py` — project layout paths (importable before the environment is loaded); `errors.py` — `EnvConfigError`
+  - `constants.py` — `Environment` dataclass built from env vars on import (`project_env`), so modules needing it are imported by `cli` after the env files are loaded
+  - `dev_commands.py` — dev commands over `docker compose` (project and balancer), tmux, dev database dump/restore
+  - `prod_tools.py` — one-off production commands over ssh (database dump/restore, commands in the app images, logs)
+  - `commands.py` — production balancer/certificates setup, image builds, S3 backup commands
   - `deploy_config.py` — loads and validates `deploy.json` into per-component configs (`get_deploy_config()`)
   - `dev_balancer.py` — dev certificates, `/etc/hosts`, project nginx config for the shared balancer; `ensure_dev_balancer` (run by `dc up`) repairs only what is missing or outdated (certificates expiring within `CERT_RENEW_BEFORE_DAYS` or not covering the domain are regenerated, stale keychain copies removed, the balancer restarted) and validates a changed config with `nginx -t` before the balancer reloads
-  - `shell_config.py` — exports the component settings as shell variables for `dc`
   - `compose/` — compose generation: `services.py` (service definitions + image constants), `fastapi_image.py` (FastAPI Dockerfiles + uvicorn command), `renderer.py`, `generate.py`, `yaml_dump.py`
   - `deploy_production.py` — check registry config → issue missing SSL certs (same as `certprod`) → bump version → build images of enabled components (`--platform linux/amd64`) → push to registry → git commit version + Sentry release → collectstatic to S3 (Django) → render prod compose → copy to server → migrate each backend → `docker stack` update → nginx reload
   - `docker_compose.py` — writes the prod swarm compose file (via `compose/renderer.py`)
@@ -36,6 +41,7 @@ Scripts resolve paths relative to this layout and must be run from the project r
   - `do_init.py` — DigitalOcean droplet / managed Postgres provisioning
   - `s3_*.py` — S3 backup/restore/bucket helpers
 - `prod-scripts/` — files copied to the prod server (certbot renew cron).
+- `tests/` — `python3.15 -m unittest discover deploy/tests` from the project root (stdlib only).
 
 ## Image versions
 

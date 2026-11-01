@@ -26,6 +26,18 @@ def create_s3_backup(env_file: str):
     command = f"{get_s3_backup_command()} --env-file {env_file} {project_env.project_name}-django python /app/deploy/scripts/s3_backup.py"
     run_command(command)
 
+def create_s3_dev_backup():
+    create_s3_backup(DEV_ENV_FILE)
+
+def restore_s3_dev_backup():
+    restore_s3_backup(DEV_ENV_FILE)
+
+def create_s3_prod_backup():
+    create_s3_backup(PROD_ENV_FILE)
+
+def restore_s3_prod_backup():
+    restore_s3_backup(PROD_ENV_FILE)
+
 def create_s3_dev_bucket():
     command = f"{get_s3_backup_command()} --env-file {DEV_ENV_FILE} {project_env.project_name}-django python /app/deploy/scripts/s3_create_bucket.py"
     run_command(command)

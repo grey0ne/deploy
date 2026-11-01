@@ -1,21 +1,11 @@
 import os
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 
-PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DEPLOY_DIR = os.path.join(PROJECT_DIR, 'deploy')
-ENV_DIR = os.path.join(PROJECT_DIR, 'environment')
-# Component directories (see deploy_config.py); FastAPI images are built from the project
-# root with fastapi.packages as the only paths sent to the build.
-DJANGO_DIR = os.path.join(PROJECT_DIR, 'django_backend')
-FASTAPI_BUILD_CONTEXT = PROJECT_DIR
-NEXTJS_DIR = os.path.join(PROJECT_DIR, 'nextjs_frontend')
-# Django runtime data (media etc.) on the host; kept as backend_data for existing deployments.
-DJANGO_DATA_DIR = os.path.join(PROJECT_DIR, 'backend_data')
-COMPOSE_DIR = os.path.join(DEPLOY_DIR, 'compose')
-VERSION_FILE = os.path.join(ENV_DIR, 'version')
-BASE_ENV_FILE = os.path.join(ENV_DIR, 'env.base')
-PROD_ENV_FILE = os.path.join(ENV_DIR, 'env.prod')
-DEV_ENV_FILE = os.path.join(ENV_DIR, 'env.dev')
+from scripts.errors import EnvConfigError  # noqa: F401  (re-exported)
+from scripts.paths import (  # noqa: F401  (re-exported for existing imports)
+    BASE_ENV_FILE, COMPOSE_DIR, DEPLOY_DIR, DEV_ENV_FILE, DJANGO_DATA_DIR, DJANGO_DIR, ENV_DIR,
+    FASTAPI_BUILD_CONTEXT, NEXTJS_DIR, PROD_ENV_FILE, PROJECT_DIR, VERSION_FILE,
+)
 
 @dataclass(kw_only=True)
 class Environment:
@@ -58,7 +48,7 @@ def get_config_value(key: str, default: str | None = None) -> str:
     if result is None:
         if default is not None:
             return default
-        raise ValueError(f'Variable {key} is required')
+        raise EnvConfigError(f'{key} is required in environment/env.base or the env file of the environment')
     return result
 
 
@@ -77,7 +67,7 @@ def read_env() -> Environment:
         registry_password=os.getenv("REGISTRY_PASSWORD"),
         registry_hostname=os.getenv("REGISTRY_HOSTNAME"),
         registry_namespace=os.getenv("REGISTRY_NAMESPACE"),
-        # Env files are parsed without a shell (load_env), so "~" must be expanded here.
+        # Env files are parsed without a shell (scripts/env_files.py), so "~" is expanded here.
         nginx_config_dir=os.path.expanduser(get_config_value("NGINX_CONFIG_DIR", default='~/nginx_configs')),
         prod_app_path=f'/app/{project_name}',
         project_description=f"{project_name} project",
@@ -106,21 +96,9 @@ def read_env() -> Environment:
         collected_static_dir=os.path.join(DJANGO_DIR, 'collected_static')
     )
 
+# Read on import: `dc` loads the env files (scripts/env_files.py) before importing commands.
 project_env = read_env()
 
-def update_environment():
-    global project_env
-    from scripts.deploy_config import reset_deploy_config
-    new_env = read_env()
-    for field in fields(Environment):
-        setattr(project_env, field.name, getattr(new_env, field.name))
-    reset_deploy_config()
-
-def get_env() -> Environment:
-    return project_env
-
-class EnvConfigError(Exception):
-    """Required environment variables are missing or empty."""
 
 REGISTRY_ENV_VARS = {
     'REGISTRY_HOSTNAME': 'registry_hostname',

@@ -9,7 +9,7 @@ project-agnostic; a project describes itself in `deploy.json` and `environment/`
 
 ## Setup
 
-Prerequisites on the host: Docker, `python3.15` (host scripts use only the standard library).
+Prerequisites on the host: Docker, `python3.15` (`dc` and the scripts use only the standard library).
 
 ```bash
 git submodule add git@github.com:grey0ne/deploy.git deploy
@@ -155,9 +155,11 @@ defined by the HTTP API only (`/api/openapi.json`, auth cookies and endpoints).
 
 ## Commands
 
-Run from the project root as `pc <command>` (or `./deploy/dc <command>`). Every run first
-regenerates the compose files. Anything that is not a command below goes to `docker compose`
-with the dev compose file (`pc logs -f fastapi`, `pc run --rm -T nextjs npm ci`, …).
+Run from the project root as `pc <command>` (or `./deploy/dc <command>`; `pc help` lists them).
+Development commands load `env.base` + `env.dev` and regenerate the dev compose files first;
+production commands load `env.base` + `env.prod` and never touch the dev files (`.env` is applied
+last in both). Anything that is not a command below goes to `docker compose` with the dev compose
+file (`pc logs -f fastapi`, `pc run --rm -T nextjs npm ci`, …).
 
 Development:
 
@@ -196,7 +198,7 @@ Production:
 ## Compose generation
 
 Compose files are generated under `deploy/compose/generated/` (gitignored, never edited) from
-`deploy.json`; `dc` does it on every run. By hand:
+`deploy.json`; development commands do it before they run. By hand:
 
 ```bash
 ./deploy/dc generate_compose
@@ -230,3 +232,9 @@ FastAPI (`"stack": "fastapi"`):
 2. deploy.json: remove `"stack"`; rename `backend_paths` → `paths`; replace `"frontend": true`
    with a top-level `"nextjs": {}` (FastAPI-only projects need no `nextjs` section).
 3. `pc rebuild`, `pc updatenginx`, `pc up`.
+
+## Development of this repo
+
+`dc` is a Python script (`scripts/cli.py`): each command is a `Command` entry with its handler,
+environment (`dev` / `prod`), whether it needs the dev compose files and a required component.
+Tests: `python3.15 -m unittest discover deploy/tests` from a project root.

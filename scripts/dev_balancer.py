@@ -11,11 +11,10 @@ import io
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 
 from scripts.compose.services import NGINX_IMAGE
-from scripts.constants import DEPLOY_DIR, project_env
+from scripts.constants import project_env
 from scripts.deploy_config import get_deploy_config
 from scripts.helpers import run_command
 from scripts.nginx.configuration import (
@@ -23,16 +22,17 @@ from scripts.nginx.configuration import (
     render_dev_nginx_conf,
     render_extra_dev_domain_nginx_conf,
 )
-from scripts.printing import print_error, print_status
+from scripts.printing import print_status
 
 DEVNET = 'devnet'
 HOSTS_FILE = '/etc/hosts'
 SYSTEM_KEYCHAIN = '/Library/Keychains/System.keychain'
 # Regenerate dev certificates expiring sooner than this
 CERT_RENEW_BEFORE_DAYS = 14
-# Exit code of `ensure_dev_balancer` telling dc to restart the balancer
-# (nginx config changed or certificates were regenerated).
-NGINX_CHANGED_EXIT_CODE = 10
+# macOS rejects certificates from user-trusted roots valid for more than 825 days.
+CERT_DAYS = 825
+# The system LibreSSL on macOS; Homebrew's openssl is not required.
+OPENSSL = '/usr/bin/openssl' if os.path.exists('/usr/bin/openssl') else 'openssl'
 
 
 class NginxConfigError(Exception):
@@ -63,12 +63,26 @@ def _cert_paths(cert_name: str) -> tuple[str, str]:
 
 
 def gen_cert(cert_name: str, domain: str) -> None:
+    """Self-signed certificate for ``domain`` (trusted separately in the system keychain)."""
     print_status(f'Generating cert {cert_name} for {domain}')
-    # Pass the expanded directory: env files are parsed without a shell, so SSL_CERTS_DIR
-    # in the environment may still contain a literal "~".
-    run_command(
-        f'SSL_CERTS_DIR="{project_env.ssl_certs_dir}" {DEPLOY_DIR}/generate_certs.sh {cert_name} {domain}'
+    cert, key = _cert_paths(cert_name)
+    os.makedirs(os.path.dirname(cert), exist_ok=True)
+    openssl_config = (
+        f'[dn]\nCN={domain}\n[req]\ndistinguished_name = dn\n'
+        f'[EXT]\nsubjectAltName=DNS.1:{domain}\nkeyUsage=digitalSignature\nextendedKeyUsage=serverAuth\n'
     )
+    with tempfile.NamedTemporaryFile('w', suffix='.cnf', encoding='utf-8') as config_file:
+        config_file.write(openssl_config)
+        config_file.flush()
+        subprocess.run(
+            [
+                OPENSSL, 'req', '-x509', '-out', cert, '-keyout', key,
+                '-newkey', 'rsa:2048', '-nodes', '-sha256', '-days', str(CERT_DAYS),
+                '-subj', f'/CN={domain}', '-extensions', 'EXT', '-config', config_file.name,
+            ],
+            check=True,
+        )
+    print_status(f'New certificate: {cert}, key: {key}')
 
 
 def add_cert_to_trusted(cert_path: str) -> None:
@@ -150,8 +164,11 @@ def hosts_has(domain: str) -> bool:
 
 
 def update_hosts(domain: str) -> None:
-    print_status(f'Updating hosts file with {domain}')
-    run_command(f'{DEPLOY_DIR}/update_hosts.sh addhost {domain}')
+    print_status(f'Adding {domain} to {HOSTS_FILE}')
+    subprocess.run(
+        ['sudo', 'tee', '-a', HOSTS_FILE], input=f'127.0.0.1\t{domain}\n', text=True,
+        stdout=subprocess.DEVNULL, check=True,
+    )
 
 
 def generate_dev_certs() -> None:
@@ -279,8 +296,11 @@ def ensure_devnet() -> None:
         run_command(f'docker network create {DEVNET}')
 
 
-def ensure_dev_balancer() -> None:
-    """Prerequisites for `dc up`; exits with NGINX_CHANGED_EXIT_CODE when the balancer must reload."""
+def ensure_dev_balancer() -> bool:
+    """Prerequisites for `dc up`; True when the balancer must restart to pick up changes.
+
+    Raises NginxConfigError (nothing written) when the new nginx config is invalid.
+    """
     ensure_devnet()
     certs_regenerated = ensure_dev_certs()
     files = render_dev_nginx_files()
@@ -288,14 +308,10 @@ def ensure_dev_balancer() -> None:
     if not changed:
         if certs_regenerated:
             print_status('Dev certificates regenerated, the balancer will restart')
-            sys.exit(NGINX_CHANGED_EXIT_CODE)
+            return True
         print_status('Dev certificates and nginx config are up to date')
-        return
+        return False
     print_status(f'nginx config changed: {", ".join(changed)}')
-    try:
-        validate_dev_nginx(files)
-    except NginxConfigError as exc:
-        print_error(f'New nginx config is invalid, the balancer was not touched: {exc}')
-        sys.exit(1)
+    validate_dev_nginx(files)
     write_dev_nginx(files)
-    sys.exit(NGINX_CHANGED_EXIT_CODE)
+    return True
