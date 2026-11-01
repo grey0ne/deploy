@@ -137,7 +137,7 @@ The Next.js service gets `BACKEND_INTERNAL_URL` (`http://${PROJECT_NAME}-django:
 
 | Command | What it does |
 |---|---|
-| `dc up` | Start the dev balancer and the project. First checks the prerequisites and fixes only what is missing: dev certificates (generated and trusted), `/etc/hosts` entries, the `devnet` network, and the project's nginx config — a changed config is validated with `nginx -t` together with all other projects' configs, written, and the balancer restarted; an invalid one stops `dc up` without touching the balancer. `sudo` is asked only when a certificate or hosts entry must be added. |
+| `dc up` | Start the dev balancer and the project. First checks the prerequisites and fixes only what is missing or outdated: dev certificates (generated and trusted; regenerated when they expire within 14 days or do not cover the domain, older copies are removed from the keychain and the balancer restarted), `/etc/hosts` entries, the `devnet` network, and the project's nginx config — a changed config is validated with `nginx -t` together with all other projects' configs, written, and the balancer restarted; an invalid one stops `dc up` without touching the balancer. `sudo` is asked only when a certificate or hosts entry must be added. Dev certificates are valid for 825 days (the macOS maximum for user-trusted certificates). |
 | `dc rebuild` | Rebuild images of all enabled components; reinstall `node_modules` for Next.js. |
 | `dc migrate` | Django `migrate` and/or `fastapi.migrate_command`, for each enabled backend. |
 | `dc test` | `pytest` in each enabled backend container. |
