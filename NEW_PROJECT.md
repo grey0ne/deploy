@@ -97,10 +97,11 @@ inside this submodule.
   config, ESLint 9+), `proxy.ts`, `global.ts`, `constants.ts` (`ENABLED_LOCALES`), `i18n/`,
   `instrumentation*.ts`, `sentry.*.config.ts`, `app/theme.ts`, `app/global-error.tsx`,
   `app/[locale]/{layout,page,not-found}.tsx`, `messages/{ru,en}.json`.
-- The frontend DSN comes from `NEXT_PUBLIC_SENTRY_FRONTEND_DSN`. `next.config.ts` names the Sentry
-  project `${PROJECT_NAME}-frontend` for source map upload, but upload needs `SENTRY_ORG` and
-  `SENTRY_RELEASE_TOKEN` during `next build`, and the production image build receives only
-  `NEXT_PUBLIC_*` variables: frontend errors reach Sentry with minified stack traces.
+- The frontend DSN comes from `NEXT_PUBLIC_SENTRY_FRONTEND_DSN`. `next.config.ts` uploads source
+  maps to the Sentry project `${PROJECT_NAME}-frontend` during `next build`: the production image
+  build gets `PROJECT_NAME`, `SENTRY_ORG` and `SENTRY_RELEASE` (the new version) as build args and
+  `SENTRY_RELEASE_TOKEN` as a build secret (never stored in the image). Without the token the build
+  succeeds, but frontend errors reach Sentry with minified stack traces.
 - `api/apiTypes.ts` is generated (`pc generatetypes`), never written by hand.
 
 ### environment/
@@ -248,7 +249,7 @@ SENTRY_RELEASE_TOKEN=<organization token, same in all projects>
 
 Optional: `EXTRA_DOMAINS` (comma separated, served by the default backend),
 `NEXT_PUBLIC_GTAG`, `NEXT_PUBLIC_YM_ID`, project specific keys (OAuth clients, …).
-`PROJECT_VERSION` / `NEXT_PUBLIC_VERSION` are written by `deployprod`.
+`PROJECT_VERSION` / `NEXT_PUBLIC_VERSION` are written (added if missing) by `deployprod`.
 Shared credentials (registry, Spaces keys, database, Sentry release token) can be copied from
 another project's `env.prod` with the user's consent; never print them or commit them.
 

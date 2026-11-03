@@ -9,10 +9,11 @@ from scripts.compose.services import GENERATED_DIR
 from scripts.deploy_config import get_deploy_config
 from scripts import swarm_progress
 from scripts.helpers import run_command, run_remote_commands, remote_command_output, remote_command_succeeds
-from scripts.printing import print_error, print_status
+from scripts.printing import print_error, print_status, print_warning
 from scripts.shell_commands import (
     RELOAD_NGINX, get_login_registry_script, get_gen_fake_certs_script, get_init_balancer_script, SETUP_DOCKER
 )
+import shlex
 import subprocess
 from subprocess import PIPE
 import os
@@ -124,13 +125,29 @@ def upload_images():
 def login_registry():
     run_command(get_login_registry_script())
 
-def build_image(service: str, dockerfile: str, context: str):
+def build_image(service: str, dockerfile: str, context: str, extra_args: list[str] | None = None):
     print_status(f"Building image for {service}")
+    args = ' '.join(shlex.quote(arg) for arg in extra_args or [])
     command = f"""
         export DOCKER_CLI_HINTS="false"
-        docker build -t {get_docker_image_prefix()}-{service} -f {dockerfile} {context}  --platform linux/amd64
+        docker build -t {get_docker_image_prefix()}-{service} -f {dockerfile} {args} {context}  --platform linux/amd64
     """
     run_command(command)
+
+
+def nextjs_sentry_build_args() -> list[str]:
+    """Build args and secret for the Sentry source maps upload in the Next.js build (next.config.ts)."""
+    args = [
+        '--build-arg', f'PROJECT_NAME={project_env.project_name}',
+        '--build-arg', f'SENTRY_ORG={project_env.sentry_org}',
+        '--build-arg', f'SENTRY_RELEASE={os.environ.get("NEXT_PUBLIC_VERSION", "")}',
+    ]
+    if project_env.sentry_release_token:
+        # Read by docker from the environment of this process: the token never appears on the command line
+        args += ['--secret', 'id=sentry_release_token,env=SENTRY_RELEASE_TOKEN']
+    else:
+        print_warning('SENTRY_RELEASE_TOKEN is not set. Frontend source maps will not be uploaded to Sentry.')
+    return args
 
 def build_images():
     config = get_deploy_config()
@@ -142,7 +159,9 @@ def build_images():
     if config.nextjs.enabled:
         # Nextjs build requires env file to hardcode NEXT_PUBLIC_* variables
         create_next_public_env_file()
-        build_image("nextjs", f"{DEPLOY_DIR}/docker/Dockerfile.nextjsprod", NEXTJS_DIR)
+        build_image(
+            "nextjs", f"{DEPLOY_DIR}/docker/Dockerfile.nextjsprod", NEXTJS_DIR, nextjs_sentry_build_args(),
+        )
         run_command(f"rm {NEXTJS_DIR}/.env")
 
 

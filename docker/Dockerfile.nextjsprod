@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.10
 FROM node:26.13.0-alpine
 
 WORKDIR /app
@@ -8,6 +9,12 @@ RUN npm install -y
 
 COPY . /app/
 
-RUN npm run build
+# Sentry source maps upload (next.config.ts). Not secret, so plain build args
+ARG PROJECT_NAME
+ARG SENTRY_ORG
+ARG SENTRY_RELEASE
+# The token is a build secret: it is available only to this RUN and never stored in the image.
+# Without the secret the build still succeeds, source maps are just not uploaded
+RUN --mount=type=secret,id=sentry_release_token,env=SENTRY_RELEASE_TOKEN npm run build
 
 CMD ["npm", "run", "start"]
