@@ -18,6 +18,8 @@ Never branch on "the stack": every step checks each component on its own (`confi
 
 Scripts resolve paths relative to this layout and must be run from the project root.
 
+Creating a new project (skeleton, dev, production infrastructure, Sentry, first deploy): follow `NEW_PROJECT.md`.
+
 ## Contents
 
 - `dc` — main CLI: a `python3.15` script (macOS system `python3` is too old) that calls `scripts/cli.py`. Every command is one `Command` in `cli.COMMANDS` with its handler (`module:function`), the environment it loads (`dev`: env.base + env.dev, `prod`: env.base + env.prod, each + optional `.env`; `None`), whether it uses the dev compose files (regenerated first — production commands never do) and a required component. Unknown args fall through to `docker compose` with the generated dev compose file. Add a command there, never in shell scripts.

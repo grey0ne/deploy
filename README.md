@@ -16,7 +16,8 @@ git submodule add git@github.com:grey0ne/deploy.git deploy
 sudo cp deploy/pc /usr/local/bin/pc     # `pc <command>` = `./deploy/dc <command>` from the project root
 ```
 
-Then add `deploy.json` and `environment/` (below) and run `pc up`.
+Then add `deploy.json` and `environment/` (below) and run `pc up`. A complete walkthrough for a new
+project, including production infrastructure and Sentry, is in [NEW_PROJECT.md](NEW_PROJECT.md).
 
 **Renamed from `django-deploy`.** GitHub redirects the old URL, but update existing projects:
 
