@@ -106,6 +106,12 @@
       ],
       "description": "Serves extra domains and, without nextjs, unmatched paths; required when both backends are enabled"
     },
+    "max_body_size": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*[kKmMgG]?$",
+      "default": "50000k",
+      "description": "nginx client_max_body_size of the application server: the largest request body, e.g. file uploads"
+    },
     "services": {
       "type": "object",
       "properties": {

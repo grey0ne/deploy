@@ -27,6 +27,8 @@ DEFAULT_SERVICES = {
 DEFAULT_DJANGO_PATHS = ('admin', 'api', 'idp', 'login', 'complete', 'static', 's')
 DEFAULT_FASTAPI_PATHS = ('api', 'ws', 'health', 'docs', 'openapi.json')
 DEFAULT_FASTAPI_PACKAGES = ('fastapi_backend',)
+# nginx client_max_body_size of the application server: the largest request body (file uploads)
+DEFAULT_MAX_BODY_SIZE = '50000k'
 
 MIGRATION_HINT = 'See "Migrating to components" in deploy/README.md.'
 
@@ -34,6 +36,7 @@ _PACKAGE_RE = re.compile(r'^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$')
 _APP_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$')
 _PATH_SEGMENT_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
 _APT_PACKAGE_RE = re.compile(r'^[a-z0-9][a-z0-9+.-]*$')
+_NGINX_SIZE_RE = re.compile(r'^[1-9][0-9]*[kKmMgG]?$')
 
 
 class DeployConfigError(Exception):
@@ -92,6 +95,7 @@ class DeployConfig:
     centrifugo_enabled: bool = False
     postgres_enabled: bool = True
     minio_enabled: bool = True
+    max_body_size: str = DEFAULT_MAX_BODY_SIZE
 
     @property
     def backends(self) -> tuple[BackendName, ...]:
@@ -259,6 +263,15 @@ def _parse_backend_name(value, field_name: str, backends: tuple[BackendName, ...
     return value
 
 
+def _parse_max_body_size(data: dict) -> str:
+    value = data.get('max_body_size', DEFAULT_MAX_BODY_SIZE)
+    if not isinstance(value, str) or not _NGINX_SIZE_RE.match(value):
+        raise DeployConfigError(
+            f'deploy.json field "max_body_size" must be an nginx size like "100m" or "50000k", got: {value!r}'
+        )
+    return value
+
+
 def _validate_components(config: DeployConfig) -> None:
     backends = config.backends
     if not backends and not config.nextjs.enabled:
@@ -365,6 +378,7 @@ def load_deploy_config() -> DeployConfig:
         centrifugo_enabled=_service_enabled(data, 'centrifugo', DEFAULT_SERVICES['centrifugo']),
         postgres_enabled=_dev_enabled(data, 'postgres', django.enabled),
         minio_enabled=_dev_enabled(data, 'minio', django.enabled),
+        max_body_size=_parse_max_body_size(data),
     )
     config = _apply_compose_profiles_fallback(config)
     _validate_components(config)

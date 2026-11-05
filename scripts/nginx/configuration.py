@@ -74,6 +74,7 @@ def extra_domain_locations(config: DeployConfig) -> str:
 def _server(*, domain: str, cert: str, key: str, resolver: str, locations: str) -> str:
     return custom_format(
         APP_SERVER_TEMPLATE,
+        MAX_BODY_SIZE=get_deploy_config().max_body_size,
         DOMAIN=domain,
         SSL_CERTIFICATE=cert,
         SSL_CERTIFICATE_KEY=key,

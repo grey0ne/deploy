@@ -134,6 +134,7 @@ Top level:
 | Field | Meaning |
 |---|---|
 | `default_backend` | Serves extra domains and, without `nextjs`, all paths not routed to the other backend. Required when both backends are enabled. |
+| `max_body_size` | nginx `client_max_body_size` of the application server (dev and prod), e.g. `"100m"`; default `"50000k"`. A larger request is answered 413 before it reaches the backend. |
 | `services` | Optional production (and dev) services: `celery` (requires `django`), `centrifugo`; `redis` is added when either is enabled. |
 | `dev` | Local-only services: `postgres`, `minio`. Both default to enabled when `django` is enabled, disabled otherwise. |
 

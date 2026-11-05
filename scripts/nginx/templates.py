@@ -167,7 +167,7 @@ server {
     ssl_certificate {SSL_CERTIFICATE};
     ssl_certificate_key {SSL_CERTIFICATE_KEY};
 
-    client_max_body_size 50000k;
+    client_max_body_size {MAX_BODY_SIZE};
 
     gzip on;
     gzip_min_length 1000;
