@@ -21,7 +21,7 @@ MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z'
 POSTGRES_IMAGE = 'postgres:16.15-alpine'
 REDIS_IMAGE = 'redis:8.10.3-alpine'
 CENTRIFUGO_IMAGE = 'centrifugo/centrifugo:v6.10.2'
-NGINX_IMAGE = 'nginx:1.30.6-alpine-slim'
+NGINX_IMAGE = 'nginx:1.30.7-alpine-slim'
 
 
 def _env_files_dev() -> list[str]:
