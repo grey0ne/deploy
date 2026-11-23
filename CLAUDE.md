@@ -50,7 +50,7 @@ Creating a new project (skeleton, dev, production infrastructure, Sentry, first 
 ## Image versions
 
 Image tags are pinned in several places — when bumping, update all of them:
-- `docker/Dockerfile.*` (`FROM`)
+- `docker/Dockerfile.*` (`FROM`; the Django ones take `ARG PYTHON_IMAGE` whose default must equal `DEFAULT_DJANGO_PYTHON` in `scripts/deploy_config.py`, overridden by `deploy.json` `django.python`)
 - `scripts/compose/fastapi_image.py` — `PYTHON_IMAGE` for the generated FastAPI Dockerfiles
 - `scripts/compose/services.py` — `*_IMAGE` constants (postgres, redis, centrifugo, minio) used for dev and prod
 - `dc` (postgres image used for dump/restore)

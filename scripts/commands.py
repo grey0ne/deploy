@@ -204,7 +204,10 @@ def nextjs_sentry_build_args() -> list[str]:
 def build_images():
     config = get_deploy_config()
     if config.django.enabled:
-        build_image("django", f"{DEPLOY_DIR}/docker/Dockerfile.djangoprod", DJANGO_DIR)
+        build_image(
+            "django", f"{DEPLOY_DIR}/docker/Dockerfile.djangoprod", DJANGO_DIR,
+            ["--build-arg", f"PYTHON_IMAGE={config.django.python_image}"],
+        )
     if config.fastapi.enabled:
         write_fastapi_dockerfiles(config)
         build_image("fastapi", FASTAPI_PROD_DOCKERFILE, FASTAPI_BUILD_CONTEXT)

@@ -1,4 +1,6 @@
-FROM python:3.15.2-slim
+# deploy.json django.python (scripts/deploy_config.py DEFAULT_DJANGO_PYTHON)
+ARG PYTHON_IMAGE=python:3.15.2-slim
+FROM ${PYTHON_IMAGE}
 
 ENV PYTHONUNBUFFERED=1
 ENV POETRY_VIRTUALENVS_CREATE=false

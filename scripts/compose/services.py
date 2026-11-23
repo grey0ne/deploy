@@ -53,7 +53,7 @@ def _env_files_prod() -> list[str]:
     ]
 
 
-def dev_django_service() -> dict:
+def dev_django_service(config: DeployConfig) -> dict:
     name = project_env.project_name
     service: dict = {
         'domainname': f'{name}-django',
@@ -62,6 +62,7 @@ def dev_django_service() -> dict:
         'build': {
             'context': DJANGO_DIR,
             'dockerfile': f'{PROJECT_DIR}/deploy/docker/Dockerfile.djangodev',
+            'args': {'PYTHON_IMAGE': config.django.python_image},
         },
         'env_file': _env_files_dev(),
         'volumes': [
@@ -296,7 +297,7 @@ def build_dev_compose(config: DeployConfig) -> dict:
 
     services: dict = {}
     if config.django.enabled:
-        services['django'] = dev_django_service()
+        services['django'] = dev_django_service(config)
     if config.fastapi.enabled:
         services['fastapi'] = dev_fastapi_service(config)
     if config.nextjs.enabled:

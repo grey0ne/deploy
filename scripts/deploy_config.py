@@ -27,6 +27,8 @@ DEFAULT_SERVICES = {
 DEFAULT_DJANGO_PATHS = ('admin', 'api', 'idp', 'login', 'complete', 'static', 's')
 DEFAULT_FASTAPI_PATHS = ('api', 'ws', 'health', 'docs', 'openapi.json')
 DEFAULT_FASTAPI_PACKAGES = ('fastapi_backend',)
+# Python of the Django images (python:<version>-slim); a project may pin another one in deploy.json
+DEFAULT_DJANGO_PYTHON = '3.15.2'
 # max_body_size of the application sites in the proxy: the largest request body (file uploads)
 DEFAULT_MAX_BODY_SIZE = '50000k'
 
@@ -35,6 +37,7 @@ MIGRATION_HINT = 'See "Migrating to components" in deploy/README.md.'
 _PACKAGE_RE = re.compile(r'^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$')
 _APP_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$')
 _PATH_SEGMENT_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
+_PYTHON_VERSION_RE = re.compile(r'^3\.[0-9]+\.[0-9]+$')
 _APT_PACKAGE_RE = re.compile(r'^[a-z0-9][a-z0-9+.-]*$')
 _SIZE_RE = re.compile(r'^[1-9][0-9]*[kKmMgG]?$')
 
@@ -49,6 +52,13 @@ class DjangoConfig:
     worker_count: int = 2
     # First path segments the proxy routes to Django.
     paths: tuple[str, ...] = DEFAULT_DJANGO_PATHS
+    # Exact Python version of the dev and production images, e.g. for dependencies that do not
+    # support the default one yet.
+    python: str = DEFAULT_DJANGO_PYTHON
+
+    @property
+    def python_image(self) -> str:
+        return f'python:{self.python}-slim'
 
 
 @dataclass(frozen=True)
@@ -217,7 +227,17 @@ def _parse_django(data: dict) -> DjangoConfig:
         enabled=True,
         worker_count=_worker_count(section, 'django', 'DJANGO_WORKER_COUNT'),
         paths=_str_list(section, 'django', 'paths', _PATH_SEGMENT_RE, DEFAULT_DJANGO_PATHS),
+        python=_parse_python(section),
     )
+
+
+def _parse_python(section: dict) -> str:
+    value = section.get('python', DEFAULT_DJANGO_PYTHON)
+    if not isinstance(value, str) or not _PYTHON_VERSION_RE.match(value):
+        raise DeployConfigError(
+            f'deploy.json field "django.python" must be an exact Python version like "3.13.12", got: {value!r}'
+        )
+    return value
 
 
 def _parse_fastapi(data: dict) -> FastapiConfig:

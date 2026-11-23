@@ -14,6 +14,11 @@
           "type": "integer",
           "minimum": 1
         },
+        "python": {
+          "type": "string",
+          "pattern": "^3\\.[0-9]+\\.[0-9]+$",
+          "description": "Exact Python version of the Django images (python:<version>-slim), default 3.15.2"
+        },
         "paths": {
           "type": "array",
           "items": {

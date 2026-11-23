@@ -103,6 +103,7 @@ Django + FastAPI + Next.js:
 | Field | Meaning |
 |---|---|
 | `worker_count` | gunicorn workers in production (falls back to `DJANGO_WORKER_COUNT`, then 2). |
+| `python` | Exact Python version of the dev and production images, e.g. `"3.13.12"` for dependencies that do not support the default (`DEFAULT_DJANGO_PYTHON` in `scripts/deploy_config.py`) yet. |
 | `paths` | First path segments the proxy routes to Django; default `admin`, `api`, `idp`, `login`, `complete`, `static`, `s`. |
 
 `fastapi`:
