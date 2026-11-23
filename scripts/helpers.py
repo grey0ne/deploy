@@ -34,14 +34,14 @@ def save_env_option(option_name: str, value: str, env_file: str = PROD_ENV_FILE,
 def run_command(command: str):
     subprocess.run(command, shell=True, check=True)
 
-def run_remote_commands(commands: list[str]):
+def run_remote_commands(commands: list[str], check: bool = False):
     ssh_command = ['ssh', f'root@{project_env.project_domain}', "bash -s"]
     command = "\n".join(commands)
     if project_env.verbose:
         for cmd in commands:
             print(f"Running command: {cmd}")
     # Output is not captured so progress of long remote commands is visible
-    subprocess.run(ssh_command, input=command, encoding='utf8')
+    subprocess.run(ssh_command, input=command, encoding='utf8', check=check)
 
 def remote_command_output(command: str) -> str:
     # Reuses one ssh connection for repeated calls (e.g. polling the swarm during deploy)

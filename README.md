@@ -1,6 +1,6 @@
 # deploy
 
-Dev and production tooling — docker compose, images, the shared nginx balancer, Docker Swarm
+Dev and production tooling — docker compose, images, the shared reverse proxy (`proxy/`, Go), Docker Swarm
 deploy — for projects built from independent components: a **Django** backend, a **FastAPI**
 backend and a **Next.js** frontend, in any combination.
 
@@ -49,7 +49,7 @@ git submodule sync deploy
 ## deploy.json
 
 A component is enabled when its section is present (`"enabled": false` switches it off without
-deleting it). Every step — dev compose, image builds, migrations, tests, nginx routing,
+deleting it). Every step — dev compose, image builds, migrations, tests, proxy routing,
 production deploy — runs for each enabled component on its own.
 
 Django + Next.js:
@@ -103,7 +103,7 @@ Django + FastAPI + Next.js:
 | Field | Meaning |
 |---|---|
 | `worker_count` | gunicorn workers in production (falls back to `DJANGO_WORKER_COUNT`, then 2). |
-| `paths` | First path segments nginx routes to Django; default `admin`, `api`, `idp`, `login`, `complete`, `static`, `s`. |
+| `paths` | First path segments the proxy routes to Django; default `admin`, `api`, `idp`, `login`, `complete`, `static`, `s`. |
 
 `fastapi`:
 
@@ -113,7 +113,7 @@ Django + FastAPI + Next.js:
 | `packages` | Directories with a `pyproject.toml`, installed in this order; default `["fastapi_backend"]`. Dev: `pip install -e "<pkg>[dev]"`, mounted into the container (so `dc test` finds tools from the `dev` extra); prod: `pip install <pkg>`. |
 | `app_dir` | Package used as the working directory / import root; defaults to the last package. |
 | `factory` | `app` is an application factory (`uvicorn --factory`). |
-| `paths` | First path segments nginx routes to FastAPI (unbuffered for server-sent events, WebSocket upgrade); default `api`, `ws`, `health`, `docs`, `openapi.json`. |
+| `paths` | First path segments the proxy routes to FastAPI (streamed responses, WebSocket upgrade); default `api`, `ws`, `health`, `docs`, `openapi.json`. |
 | `worker_count` | uvicorn workers in production (falls back to `FASTAPI_WORKER_COUNT`, then 2). |
 | `docker_socket` | Mount `/var/run/docker.sock` into the FastAPI container (dev and prod). |
 | `apt_packages` | Debian packages installed into the FastAPI image. |
@@ -134,7 +134,7 @@ Top level:
 | Field | Meaning |
 |---|---|
 | `default_backend` | Serves extra domains and, without `nextjs`, all paths not routed to the other backend. Required when both backends are enabled. |
-| `max_body_size` | nginx `client_max_body_size` of the application server (dev and prod), e.g. `"100m"`; default `"50000k"`. A larger request is answered 413 before it reaches the backend. |
+| `max_body_size` | The largest request body of the application sites in the proxy (dev and prod), e.g. `"100m"`; default `"50000k"`. A larger request is answered 413 before it reaches the backend. |
 | `services` | Optional production (and dev) services: `celery` (requires `django`), `centrifugo`; `redis` is added when either is enabled. |
 | `dev` | Local-only services: `postgres`, `minio`. Both default to enabled when `django` is enabled, disabled otherwise. |
 
@@ -143,8 +143,8 @@ Invalid values, overlapping `django.paths` / `fastapi.paths`, a missing `nextjs.
 
 ### Routing
 
-- Each enabled backend gets an nginx location for its `paths`.
-- `location /` goes to Next.js when it is enabled; otherwise to `default_backend` (a single backend gets all traffic).
+- Each enabled backend gets a proxy route for its `paths` (whole path segments: `api` matches `/api` and `/api/…`, not `/apix`).
+- `/` goes to Next.js when it is enabled; otherwise to `default_backend` (a single backend gets all traffic).
 - Extra domains (`EXTRA_DOMAINS`) send all traffic to `default_backend`.
 - With Django, `media.<domain>` serves MinIO in dev.
 
@@ -167,15 +167,15 @@ Development:
 
 | Command | What it does |
 |---|---|
-| `up` | Start the dev balancer and the project. First fixes only what is missing or outdated: dev certificates (generated and trusted; regenerated when they expire within 14 days or do not cover the domain), `/etc/hosts` entries, the `devnet` network and the project's nginx config (validated with `nginx -t` together with all other projects' configs before the balancer restarts). `sudo` is asked only when a certificate or hosts entry must be added. |
+| `up` | Start the dev balancer and the project. First fixes only what is missing or outdated: dev certificates (generated and trusted; regenerated when they expire within 14 days or do not cover the domain), `/etc/hosts` entries, the `devnet` network, the proxy image and the project's proxy config `$PROXY_CONFIG_DIR/<project>.yaml` (default `~/proxy_configs`; validated with `proxy -check` together with all other projects' configs, then applied by the running proxy without a restart). `sudo` is asked only when a certificate or hosts entry must be added. |
 | `rebuild` | Rebuild images of all enabled components and restart. For Next.js it **deletes `package-lock.json`** and `node_modules` and runs `npm install`; to keep the lock file use `pc build <component>` and `pc run --rm -T nextjs npm ci`. |
 | `migrate` | Django `migrate` and/or `fastapi.migrate_command`. |
 | `test` | `pytest` in each enabled backend container. |
 | `generatetypes` | OpenAPI types from `nextjs.backend` into `nextjs_frontend/api/apiTypes.ts`. |
 | `sh <service>` | bash in a running container. |
 | `tmux` | tmux session with the logs of the balancer and every component. |
-| `nginx …` | `docker compose` for the shared balancer (`pc nginx logs -f nginx`). |
-| `gencerts`, `updatenginx` | Regenerate all dev certificates (+ `/etc/hosts`); write and reload the balancer config. Usually not needed: `up` does both when required. |
+| `proxy …` | `docker compose` for the shared balancer (`pc proxy logs -f proxy`). |
+| `gencerts`, `updateproxy` | Regenerate all dev certificates (+ `/etc/hosts`); validate and write the balancer config. Usually not needed: `up` does both when required. The proxy picks up changed certificates and configs by itself. |
 | `django …`, `format`, `devsuperuser <name>` | Django only: `manage.py`, isort + black, a superuser with password `devpass`. |
 | `updatesubmodules` | `git submodule update --init --recursive --remote`. |
 
@@ -191,11 +191,37 @@ Production:
 
 | Command | What it does |
 |---|---|
-| `deployprod` | Issue missing SSL certificates, bump the version, build and push images of enabled components (`linux/amd64`), render the Swarm compose, migrate each backend, update the stack, reload nginx. |
-| `certprod` | Issue missing SSL certificates for the production domains. |
-| `initprod`, `deploybalancer` | Provision DigitalOcean infrastructure and the production balancer. |
+| `deployprod` | Bump the version, build and push images of enabled components and of the proxy (`linux/amd64`), render the Swarm compose, migrate each backend, update the stack, upload the proxy config (validated on the server) and wait until every domain serves a valid certificate. A new `PROXY_VERSION` is rolled out first. |
+| `certprod` | Check that every production domain serves a valid certificate (the proxy issues and renews them). |
+| `initprod`, `deploybalancer` | Set up Docker and the balancer on the server; build and push the proxy image, (re)start the production proxy. |
 | `djangoprod …`, `fastapiprod …` | One-off command in the production image (`manage.py …` / the given command). |
 | `logsprod <service>` | `docker service logs` of a production service. |
+
+## Reverse proxy
+
+`proxy/` is the balancer of dev and production (see `proxy/README.md`): TLS termination, routing
+by domain and path prefix, WebSocket and streamed responses, gzip, request body limits. Every
+project writes one YAML file with its sites into the shared config directory; the proxy
+applies config and certificate changes without a restart, and a broken file of one project
+never affects the others. In production it gets and renews Let's Encrypt certificates itself
+(http-01 / tls-alpn-01), so there is no certbot and no reload.
+
+In dev the image `deploy-proxy:<PROXY_VERSION>` is built by `dc up` when the tag is missing. For
+production it is built locally (`linux/amd64`) and pushed with the project images as
+`<REGISTRY_HOSTNAME>/<REGISTRY_NAMESPACE>/deploy-proxy:<PROXY_VERSION>`: no project name, so the
+projects of one namespace share the balancer image. Bump `PROXY_VERSION` with every change of
+`proxy/`; `deployprod` then rolls the new version out (the balancer runs another image).
+
+### Switching a server from nginx
+
+The balancer is shared by every project on the server, so `deployprod` does not switch it:
+it pushes the proxy image, uploads the project's config to `/app/balancer/sites/` and nginx
+keeps serving. Once every project on the server has deployed with this deploy version, run
+`pc deploybalancer` once: it removes the nginx service (`--prune`), starts the proxy with
+host-mode ports (the real client addresses reach the backends) and drops the certbot cron.
+The proxy requests new certificates on its first start; the old certbot files are not used.
+In dev, `pc up` replaces the `nginx` container; projects with an older deploy submodule are
+not served by the proxy until they update it.
 
 ## Compose generation
 
@@ -225,7 +251,7 @@ Django + Next.js (`"stack": "django_nextjs"`):
 3. Update paths in CI workflows, `.gitignore`, `.dockerignore`, editor settings and scripts.
 4. Next.js: `next_utils` reads the backend URL from `BACKEND_INTERNAL_URL` only;
    `NavigationHeader` has no `showDjangoAdmin` — add `{ url: '/admin/', external: true, needAdmin: true }` to `links`.
-5. `pc rebuild`, `pc updatenginx`, `pc up`; check the site, then deploy as usual.
+5. `pc rebuild`, `pc up`; check the site, then deploy as usual.
 
 FastAPI (`"stack": "fastapi"`):
 
@@ -233,7 +259,7 @@ FastAPI (`"stack": "fastapi"`):
    A frontend moves to `nextjs_frontend/`.
 2. deploy.json: remove `"stack"`; rename `backend_paths` → `paths`; replace `"frontend": true`
    with a top-level `"nextjs": {}` (FastAPI-only projects need no `nextjs` section).
-3. `pc rebuild`, `pc updatenginx`, `pc up`.
+3. `pc rebuild`, `pc up`.
 
 ## Development of this repo
 

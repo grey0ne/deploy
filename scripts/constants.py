@@ -17,11 +17,12 @@ class Environment:
     registry_password: str | None = None
     registry_hostname: str | None = None
     registry_namespace: str | None = None
-    nginx_config_dir: str | None = None
+    proxy_config_dir: str
+    acme_email: str
     prod_app_path: str
     project_description: str
     compose_profiles: list[str] = field(default_factory=list)
-    ssl_certs_dir: str | None = None
+    ssl_certs_dir: str
     pg_cluster_name: str
     pg_db_name: str
     pg_username: str
@@ -68,7 +69,9 @@ def read_env() -> Environment:
         registry_hostname=os.getenv("REGISTRY_HOSTNAME"),
         registry_namespace=os.getenv("REGISTRY_NAMESPACE"),
         # Env files are parsed without a shell (scripts/env_files.py), so "~" is expanded here.
-        nginx_config_dir=os.path.expanduser(get_config_value("NGINX_CONFIG_DIR", default='~/nginx_configs')),
+        proxy_config_dir=os.path.expanduser(get_config_value("PROXY_CONFIG_DIR", default='~/proxy_configs')),
+        # Contact of the Let's Encrypt account of the production proxy
+        acme_email=get_config_value("ACME_EMAIL", default='sergey.lihobabin@gmail.com'),
         prod_app_path=f'/app/{project_name}',
         project_description=f"{project_name} project",
         compose_profiles=os.getenv("COMPOSE_PROFILES", "").split(',') if os.getenv("COMPOSE_PROFILES", "") else [],

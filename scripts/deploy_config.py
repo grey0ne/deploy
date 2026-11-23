@@ -27,7 +27,7 @@ DEFAULT_SERVICES = {
 DEFAULT_DJANGO_PATHS = ('admin', 'api', 'idp', 'login', 'complete', 'static', 's')
 DEFAULT_FASTAPI_PATHS = ('api', 'ws', 'health', 'docs', 'openapi.json')
 DEFAULT_FASTAPI_PACKAGES = ('fastapi_backend',)
-# nginx client_max_body_size of the application server: the largest request body (file uploads)
+# max_body_size of the application sites in the proxy: the largest request body (file uploads)
 DEFAULT_MAX_BODY_SIZE = '50000k'
 
 MIGRATION_HINT = 'See "Migrating to components" in deploy/README.md.'
@@ -36,7 +36,7 @@ _PACKAGE_RE = re.compile(r'^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$')
 _APP_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_.]*:[A-Za-z_][A-Za-z0-9_]*$')
 _PATH_SEGMENT_RE = re.compile(r'^[A-Za-z0-9_.-]+$')
 _APT_PACKAGE_RE = re.compile(r'^[a-z0-9][a-z0-9+.-]*$')
-_NGINX_SIZE_RE = re.compile(r'^[1-9][0-9]*[kKmMgG]?$')
+_SIZE_RE = re.compile(r'^[1-9][0-9]*[kKmMgG]?$')
 
 
 class DeployConfigError(Exception):
@@ -47,7 +47,7 @@ class DeployConfigError(Exception):
 class DjangoConfig:
     enabled: bool = False
     worker_count: int = 2
-    # First path segments nginx routes to Django.
+    # First path segments the proxy routes to Django.
     paths: tuple[str, ...] = DEFAULT_DJANGO_PATHS
 
 
@@ -62,7 +62,7 @@ class FastapiConfig:
     # Package directory used as uvicorn import root and working dir; defaults to the last package.
     app_dir: str = ''
     factory: bool = False
-    # First path segments nginx routes to FastAPI (unbuffered, WebSocket upgrade).
+    # First path segments the proxy routes to FastAPI (streaming responses, WebSocket upgrade).
     paths: tuple[str, ...] = DEFAULT_FASTAPI_PATHS
     # Mount the Docker socket into the FastAPI container (apps that start containers).
     docker_socket: bool = False
@@ -265,9 +265,9 @@ def _parse_backend_name(value, field_name: str, backends: tuple[BackendName, ...
 
 def _parse_max_body_size(data: dict) -> str:
     value = data.get('max_body_size', DEFAULT_MAX_BODY_SIZE)
-    if not isinstance(value, str) or not _NGINX_SIZE_RE.match(value):
+    if not isinstance(value, str) or not _SIZE_RE.match(value):
         raise DeployConfigError(
-            f'deploy.json field "max_body_size" must be an nginx size like "100m" or "50000k", got: {value!r}'
+            f'deploy.json field "max_body_size" must be a size like "100m" or "50000k", got: {value!r}'
         )
     return value
 

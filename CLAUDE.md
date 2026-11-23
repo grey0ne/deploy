@@ -34,26 +34,27 @@ Creating a new project (skeleton, dev, production infrastructure, Sentry, first 
   - `dev_commands.py` — dev commands over `docker compose` (project and balancer), tmux, dev database dump/restore
   - `git_commands.py` — commands with `env=None` (`updatesubmodules`); must not import `constants`
   - `prod_tools.py` — one-off production commands over ssh (database dump/restore, commands in the app images, logs)
-  - `commands.py` — production balancer/certificates setup, image builds, S3 backup commands
+  - `commands.py` — production balancer setup (the proxy image is built locally and pushed like the project images), certificate check, image builds, S3 backup commands
   - `deploy_config.py` — loads and validates `deploy.json` into per-component configs (`get_deploy_config()`)
-  - `dev_balancer.py` — dev certificates, `/etc/hosts`, project nginx config for the shared balancer; `ensure_dev_balancer` (run by `dc up`) repairs only what is missing or outdated (certificates expiring within `CERT_RENEW_BEFORE_DAYS` or not covering the domain are regenerated, stale keychain copies removed, the balancer restarted) and validates a changed config with `nginx -t` before the balancer reloads
+  - `dev_balancer.py` — dev certificates, `/etc/hosts`, project proxy config for the shared balancer; `ensure_dev_balancer` (run by `dc up`) repairs only what is missing or outdated (certificates expiring within `CERT_RENEW_BEFORE_DAYS` or not covering the domain are regenerated, stale keychain copies removed) and validates a changed config with `proxy -check` before writing it (atomically); the proxy applies it and reloads changed certificates by itself
   - `compose/` — compose generation: `services.py` (service definitions + image constants), `fastapi_image.py` (FastAPI Dockerfiles + uvicorn command), `renderer.py`, `generate.py`, `yaml_dump.py`
-  - `deploy_production.py` — check registry config → issue missing SSL certs (same as `certprod`) → bump version → build images of enabled components (`--platform linux/amd64`; Next.js gets the Sentry source map settings as build args and `SENTRY_RELEASE_TOKEN` as a build secret) → push to registry → git commit version + Sentry release → collectstatic to S3 (Django) → render prod compose → copy to server → migrate each backend → `docker stack` update → nginx reload
+  - `deploy_production.py` — check registry config → bump version → build images of enabled components and the proxy (`--platform linux/amd64`; Next.js gets the Sentry source map settings as build args and `SENTRY_RELEASE_TOKEN` as a build secret) → push to registry → git commit version + Sentry release → collectstatic to S3 (Django) → render prod compose → copy to server → roll out a new `PROXY_VERSION` (`commands.ensure_balancer`; a server still on nginx is never switched automatically) → migrate each backend → `docker stack` update → proxy config validated on the server and moved into `/app/balancer/sites/` → wait for valid certificates (`certprod`)
   - `swarm_progress.py` — progress of the swarm update: the stack is deployed detached and its changed services are polled over ssh (one line per state change, task errors once, converged after `STABLE_SECONDS`), because `docker stack deploy --detach=false` output is unreadable without a TTY
   - `docker_compose.py` — writes the prod swarm compose file (via `compose/renderer.py`)
-  - `nginx/` — nginx configs composed from per-component location blocks (dev and prod)
+  - `proxy/configuration.py` — the project's proxy sites (dev: certificate files, prod: ACME) composed from the enabled components, one YAML file per project
   - `do_init.py` — DigitalOcean droplet / managed Postgres provisioning
   - `s3_*.py` — S3 backup/restore/bucket helpers
-- `prod-scripts/` — files copied to the prod server (certbot renew cron).
-- `tests/` — `python3.15 -m unittest discover deploy/tests` from the project root (stdlib only).
+- `proxy/` — the reverse proxy (Go, see `proxy/README.md`): TLS (Let's Encrypt via autocert or certificate files), routing by domain and path prefix, YAML site files of a directory, config and certificate changes applied without a restart. `go test ./...` in `proxy/` (also run by its Dockerfile). Bump `PROXY_VERSION` in `scripts/compose/services.py` with every change: dev rebuilds only a missing tag, production pushes `<registry>/<namespace>/deploy-proxy:<version>` and `deployprod` restarts the balancer when it runs another image.
+- `tests/` — `python3.15 -m unittest discover deploy/tests` from the project root (stdlib only; the proxy config test runs `go run` when Go is installed).
 
 ## Image versions
 
 Image tags are pinned in several places — when bumping, update all of them:
 - `docker/Dockerfile.*` (`FROM`)
 - `scripts/compose/fastapi_image.py` — `PYTHON_IMAGE` for the generated FastAPI Dockerfiles
-- `scripts/compose/services.py` — `*_IMAGE` constants (postgres, redis, centrifugo, nginx, minio) used for dev, balancer and prod
+- `scripts/compose/services.py` — `*_IMAGE` constants (postgres, redis, centrifugo, minio) used for dev and prod
 - `dc` (postgres image used for dump/restore)
+- `proxy/Dockerfile` (Go and Alpine) and `proxy/go.mod` — bump `PROXY_VERSION` after changing them
 
 The Python version in the django/fastapi Dockerfiles and `Dockerfile.devcontainer` must satisfy the host projects' `pyproject.toml`. Postgres major version must match the prod managed DB (`PG_VERSION` in `scripts/constants.py`). Changes here affect every project that uses this submodule.
 

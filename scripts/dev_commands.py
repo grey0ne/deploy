@@ -7,7 +7,7 @@ from typing import IO
 from scripts.compose.services import POSTGRES_IMAGE, backend_internal_url
 from scripts.constants import project_env
 from scripts.deploy_config import get_deploy_config
-from scripts.dev_balancer import ensure_dev_balancer, generate_dev_certs, update_dev_nginx
+from scripts.dev_balancer import ensure_dev_balancer, generate_dev_certs, update_dev_proxy
 from scripts.paths import BACKUP_DIR, BASE_ENV_FILE, DEV_ENV_FILE, GENERATED_COMPOSE_DIR
 from scripts.printing import print_status
 
@@ -36,16 +36,13 @@ def compose(args: list[str]) -> None:
 
 
 def up(_args: list[str]) -> None:
-    # Certificates, /etc/hosts and the project's nginx config are created/updated only when
+    # Certificates, /etc/hosts and the project's proxy config are created/updated only when
     # missing or outdated (sudo is asked only then); a changed config is validated first.
-    restart_balancer = ensure_dev_balancer()
-    run(balancer_compose('up', '-d'))
-    if restart_balancer:
-        run(balancer_compose('restart'))
+    # The running proxy picks up config and certificate changes without a restart.
+    ensure_dev_balancer()
+    # --remove-orphans: the nginx container of the previous balancer holds the same ports.
+    run(balancer_compose('up', '-d', '--remove-orphans'))
     run(dev_compose('up', '-d'))
-    # Recreated containers get new IPs, while nginx keeps resolved upstream addresses for
-    # up to 30s (resolver valid=30s) and answers 502; a reload drops the cached addresses.
-    run(balancer_compose('exec', 'nginx', 'nginx', '-s', 'reload'))
 
 
 def rebuild(_args: list[str]) -> None:
@@ -103,18 +100,16 @@ def generatetypes(_args: list[str]) -> None:
     run(dev_compose('exec', 'nextjs', 'npx', '-y', 'openapi-typescript', url, '--output', 'api/apiTypes.ts'))
 
 
-def nginx(args: list[str]) -> None:
+def proxy(args: list[str]) -> None:
     run(balancer_compose(*args))
 
 
-def updatenginx(_args: list[str]) -> None:
-    update_dev_nginx()
-    run(balancer_compose('restart'))
+def updateproxy(_args: list[str]) -> None:
+    update_dev_proxy()
 
 
 def gencerts(_args: list[str]) -> None:
     generate_dev_certs()
-    run(balancer_compose('restart'))
 
 
 def tmux(_args: list[str]) -> None:
@@ -125,7 +120,7 @@ def tmux(_args: list[str]) -> None:
     run(['tmux', 'new-session', '-d', '-s', session])
     run(['tmux', 'new-window', '-t', window, '-n', 'Server'])
     run(['tmux', 'kill-window', '-t', f'{session}:0'])
-    run(['tmux', 'send-keys', '-t', window, 'pc nginx logs nginx -f', 'C-m'])
+    run(['tmux', 'send-keys', '-t', window, 'pc proxy logs proxy -f', 'C-m'])
     for component in get_deploy_config().components:
         run(['tmux', 'split-window', '-v', '-t', window])
         run(['tmux', 'send-keys', '-t', window, f'pc logs {component} -f', 'C-m'])

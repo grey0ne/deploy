@@ -12,7 +12,7 @@ os.environ.setdefault('PROJECT_DOMAIN', 'demo.example.com')
 from scripts.deploy_config import (  # noqa: E402
     DEFAULT_MAX_BODY_SIZE, DeployConfig, DeployConfigError, DjangoConfig, _parse_max_body_size,
 )
-from scripts.nginx import configuration  # noqa: E402
+from scripts.proxy import configuration  # noqa: E402
 
 
 class MaxBodySizeTest(unittest.TestCase):
@@ -29,12 +29,11 @@ class MaxBodySizeTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(DeployConfigError):
                 _parse_max_body_size({'max_body_size': value})
 
-    def test_rendered_into_the_server(self) -> None:
+    def test_rendered_into_the_sites(self) -> None:
         config = DeployConfig(django=DjangoConfig(enabled=True), default_backend='django', max_body_size='100m')
-        with mock.patch.object(configuration, 'get_deploy_config', return_value=config):
-            rendered = configuration._prod_server('demo.example.com', configuration.app_locations(config))
-        self.assertIn('client_max_body_size 100m;', rendered)
-        self.assertNotIn('{MAX_BODY_SIZE}', rendered)
+        with mock.patch.object(configuration.project_env, 'extra_domains', ['extra.example.com']):
+            sites = configuration.prod_sites(config)
+        self.assertEqual([site['max_body_size'] for site in sites], ['100m', '100m'])
 
 
 if __name__ == '__main__':

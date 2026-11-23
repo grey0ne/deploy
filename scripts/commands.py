@@ -1,20 +1,25 @@
 from scripts.constants import (
-    project_env, get_docker_image_prefix, EnvConfigError, DEPLOY_DIR, DJANGO_DIR, FASTAPI_BUILD_CONTEXT,
+    project_env, get_docker_image_prefix, check_registry_config, EnvConfigError, DEPLOY_DIR, DJANGO_DIR, FASTAPI_BUILD_CONTEXT,
     BASE_ENV_FILE, DEV_ENV_FILE, COMPOSE_DIR, PROD_ENV_FILE, NEXTJS_DIR,
 )
 from scripts.paths import BACKUP_DIR
 from scripts.compose.fastapi_image import PROD_DOCKERFILE as FASTAPI_PROD_DOCKERFILE, write_fastapi_dockerfiles
 from scripts.compose.renderer import render_prod_balancer_compose
-from scripts.compose.services import GENERATED_DIR
+from scripts.compose.services import (
+    GENERATED_DIR, PROD_BALANCER_DIR, PROD_PROXY_ACME_DIR, PROD_PROXY_SITES_DIR, PROXY_DIR, prod_proxy_image,
+)
 from scripts.deploy_config import get_deploy_config
 from scripts import swarm_progress
 from scripts.helpers import run_command, run_remote_commands, remote_command_output, remote_command_succeeds
 from scripts.printing import print_error, print_status, print_warning
-from scripts.shell_commands import (
-    RELOAD_NGINX, get_login_registry_script, get_gen_fake_certs_script, get_init_balancer_script, SETUP_DOCKER
-)
+from scripts.proxy.configuration import prod_sites, site_domains
+from scripts.shell_commands import get_login_registry_script, get_init_balancer_script, SETUP_DOCKER
 import shlex
+import ssl
 import subprocess
+import time
+import urllib.error
+import urllib.request
 from subprocess import PIPE
 import os
 
@@ -63,18 +68,16 @@ def get_image_hash(image_name: str) -> str:
     return ""
 
 
-def reload_prod_nginx():
-    print_status("Reloading nginx")
-    run_remote_commands([RELOAD_NGINX, ])
-
 STACK_DEPLOY_TIMEOUT = 300
 
-def update_swarm(compose_file: str, stack_name: str):
+def update_swarm(compose_file: str, stack_name: str, prune: bool = False):
+    """prune: remove the services of the stack that are no longer in the compose file."""
     print_status(f"Updating {stack_name} swarm")
     snapshot = swarm_progress.snapshot_script(stack_name)
     before = swarm_progress.parse_snapshot(remote_command_output(snapshot))
+    prune_flag = " --prune" if prune else ""
     run_remote_commands([
-        f"docker stack config -c {compose_file} | docker stack deploy --with-registry-auth --detach=true -c - {stack_name}"
+        f"docker stack config -c {compose_file} | docker stack deploy --with-registry-auth --detach=true{prune_flag} -c - {stack_name}"
     ])
     converged = swarm_progress.wait_for_stack(
         before, lambda: swarm_progress.parse_snapshot(remote_command_output(snapshot)), STACK_DEPLOY_TIMEOUT,
@@ -90,19 +93,64 @@ def update_swarm(compose_file: str, stack_name: str):
     print_status("Prune images")
     run_remote_commands(['docker image prune -f',])
 
-def setup_balancer():
+def build_proxy_image():
+    build_image("proxy", f"{PROXY_DIR}/Dockerfile", PROXY_DIR, image=prod_proxy_image())
+
+
+def deployed_proxy_image() -> str | None:
+    """Image of the running proxy service without its digest; None when the server runs no proxy."""
+    output = remote_command_output(
+        "docker service inspect balancer_proxy --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' "
+        "2>/dev/null || true"
+    )
+    return output.strip().split('@')[0] or None
+
+
+def start_balancer():
+    """Start the proxy of PROXY_VERSION from the registry; it replaces the nginx balancer (pruned)."""
     render_prod_balancer_compose()
-    print_status("Copying balancer files")
+    print_status("Preparing swarm, network and directories for the balancer")
     run_remote_commands([
-        f"mkdir -p /app/balancer",
-        f"mkdir -p /app/balancer/conf",
-    ])
-    print_status("Preparing swarm, network and certificates for balancer")
-    run_remote_commands([get_init_balancer_script()])
-    copy_to_remote(f'{GENERATED_DIR}/prod_balancer.yml', '/app/balancer/compose.yml')
-    copy_to_remote(f'{DEPLOY_DIR}/nginx/conf/balancer.conf', '/app/balancer/conf/default.conf')
-    update_swarm('/app/balancer/compose.yml', 'balancer')
-    reload_prod_nginx()
+        get_init_balancer_script(),
+        # The server pulls the proxy image from the registry
+        get_login_registry_script(),
+        f"mkdir -p {PROD_PROXY_SITES_DIR} {PROD_PROXY_ACME_DIR}",
+        "chmod 700 " + PROD_PROXY_ACME_DIR,
+        # Renewals were done by certbot (and run-parts skips names with dots): the proxy renews now.
+        "rm -f /etc/cron.daily/certbot_renew.sh",
+    ], check=True)
+    copy_to_remote(f'{GENERATED_DIR}/prod_balancer.yml', f'{PROD_BALANCER_DIR}/compose.yml')
+    update_swarm(f'{PROD_BALANCER_DIR}/compose.yml', 'balancer', prune=True)
+
+
+def setup_balancer():
+    """Build and push the proxy image like the project images, then (re)start the balancer."""
+    check_registry_config()
+    build_proxy_image()
+    login_registry()
+    run_command(f"docker push {prod_proxy_image()}")
+    start_balancer()
+
+
+def ensure_balancer():
+    """Rolls out a new PROXY_VERSION (its image is built and pushed with the project images).
+
+    A server still running the nginx balancer is not switched: it serves the sites of every
+    project, which keep working only once each of them has uploaded its proxy config. The switch
+    is `dc deploybalancer`.
+    """
+    deployed = deployed_proxy_image()
+    if deployed == prod_proxy_image():
+        return
+    if deployed:
+        print_status(f"Updating the balancer: {deployed} -> {prod_proxy_image()}")
+        start_balancer()
+        return
+    print_warning(
+        "The server runs the nginx balancer: it keeps serving the sites. After every project on the "
+        "server has deployed with this deploy version (each uploads its proxy config), switch to the "
+        "proxy with `dc deploybalancer`."
+    )
 
 
 def collect_static():
@@ -121,16 +169,20 @@ def upload_images():
     print_status("Uploading images to registry")
     for component in get_deploy_config().components:
         run_command(f"docker push {get_docker_image_prefix()}-{component}")
+    run_command(f"docker push {prod_proxy_image()}")
 
 def login_registry():
     run_command(get_login_registry_script())
 
-def build_image(service: str, dockerfile: str, context: str, extra_args: list[str] | None = None):
+def build_image(
+    service: str, dockerfile: str, context: str, extra_args: list[str] | None = None, image: str | None = None,
+):
     print_status(f"Building image for {service}")
     args = ' '.join(shlex.quote(arg) for arg in extra_args or [])
+    image = image or f"{get_docker_image_prefix()}-{service}"
     command = f"""
         export DOCKER_CLI_HINTS="false"
-        docker build -t {get_docker_image_prefix()}-{service} -f {dockerfile} {args} {context}  --platform linux/amd64
+        docker build -t {image} -f {dockerfile} {args} {context}  --platform linux/amd64
     """
     run_command(command)
 
@@ -163,61 +215,51 @@ def build_images():
             "nextjs", f"{DEPLOY_DIR}/docker/Dockerfile.nextjsprod", NEXTJS_DIR, nextjs_sentry_build_args(),
         )
         run_command(f"rm {NEXTJS_DIR}/.env")
+    build_proxy_image()
 
 
-def setup_prod_domain_cert(domain: str):
-    print_status(f"Setting up certbot for domain {domain}")
-    SETUP_CERTBOT_COMMAND = f"""
-    CERTS_VOLUME=/app/certbot/certificates
-    CHALLENGE_VOLUME=/app/certbot/challenge
-    docker run --rm --name temp_certbot -v $CERTS_VOLUME:/etc/letsencrypt -v $CHALLENGE_VOLUME:/tmp/letsencrypt certbot/certbot:v1.14.0 certonly --non-interactive --webroot --agree-tos --keep-until-expiring --text --email sergey.lihobabin@gmail.com -d {domain} -w /tmp/letsencrypt
-    """
-    run_remote_commands([ SETUP_CERTBOT_COMMAND, ])
+HTTPS_CHECK_TIMEOUT = 180
 
 
-def get_prod_cert_domains() -> list[str]:
-    domains = [project_env.project_domain, *project_env.extra_domains]
-    if get_deploy_config().centrifugo_enabled:
-        domains.append(f"centrifugo.{project_env.project_domain}")
-    return domains
+def _https_error(domain: str) -> str | None:
+    """None when the domain answers over https with a valid certificate (any HTTP status)."""
+    try:
+        urllib.request.urlopen(f"https://{domain}/", timeout=10)
+    except urllib.error.HTTPError:
+        return None
+    except (urllib.error.URLError, ssl.SSLError, OSError) as exc:
+        return str(getattr(exc, 'reason', exc))
+    return None
 
-def get_missing_prod_certs() -> list[str]:
-    return [
-        domain for domain in get_prod_cert_domains()
-        if not remote_command_succeeds(f"test -f /app/certbot/certificates/live/{domain}/fullchain.pem")
-    ]
 
-def issue_prod_certs():
-    missing = get_missing_prod_certs()
-    if not missing:
-        print_status("All certificates are present")
-        return
-    run_remote_commands([
-        f"mkdir -p /app/certbot/certificates",
-        f"mkdir -p /app/certbot/challenge",
-    ])
-    for domain in missing:
-        setup_prod_domain_cert(domain)
-    # The balancer is shared between projects: a config pointing to a missing certificate
-    # stops nginx from starting and takes down every site on the server
-    still_missing = get_missing_prod_certs()
-    if still_missing:
-        raise EnvConfigError(
-            f'Failed to issue certificates for {", ".join(still_missing)}. '
-            f'Check that DNS records point to the server and balancer nginx is running'
+def check_prod_https() -> bool:
+    """Wait until every production domain serves a valid certificate. The proxy requests a
+    certificate as soon as a domain appears in its config; issuance needs DNS pointing to the
+    server. Returns False (with a warning) when some domain is still failing."""
+    pending = site_domains(prod_sites())
+    deadline = time.monotonic() + HTTPS_CHECK_TIMEOUT
+    errors: dict[str, str] = {}
+    while pending:
+        errors = {domain: error for domain in pending if (error := _https_error(domain)) is not None}
+        for domain in pending:
+            if domain not in errors:
+                print_status(f"https://{domain}/ serves a valid certificate")
+        pending = list(errors)
+        if not pending or time.monotonic() > deadline:
+            break
+        time.sleep(5)
+    for domain, error in errors.items():
+        print_warning(
+            f"https://{domain}/ is not available: {error}. Check that DNS points to the server and "
+            f"the proxy logs: ssh root@{project_env.project_domain} docker service logs balancer_proxy"
         )
+    return not errors
 
-def setup_prod_certs():
-    issue_prod_certs()
-    print_status(f"Copying fake certs to dummy folder")
-    run_remote_commands([ get_gen_fake_certs_script(), ])
-    reload_prod_nginx()
 
 def production_setup():
     print_status("Setting up docker")
     run_remote_commands([ SETUP_DOCKER, ])
     setup_balancer()
-    setup_prod_certs()
 
 def create_next_public_env_file() -> None:
     """

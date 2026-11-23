@@ -110,7 +110,7 @@
       "type": "string",
       "pattern": "^[1-9][0-9]*[kKmMgG]?$",
       "default": "50000k",
-      "description": "nginx client_max_body_size of the application server: the largest request body, e.g. file uploads"
+      "description": "The largest request body of the application sites in the proxy, e.g. file uploads (k, m, g are powers of 1024)"
     },
     "services": {
       "type": "object",

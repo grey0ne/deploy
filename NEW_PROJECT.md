@@ -22,11 +22,11 @@ What is automated and what is not:
 | Step | How |
 |---|---|
 | Repository skeleton, submodules, env files | by hand (this guide) |
-| Dev certificates, `/etc/hosts`, dev nginx, compose | `pc up` |
+| Dev certificates, `/etc/hosts`, dev proxy config, compose | `pc up` |
 | DNS A record, Postgres database, droplet | DigitalOcean console or `pc initinfra` (careful, see 4.2) |
 | Spaces buckets and their CDN subdomains (`static.`, `media.`) | DigitalOcean console, by hand |
 | Sentry projects | Sentry UI or Sentry MCP (section 5) |
-| Certificates, images, migrations, Swarm stack, prod nginx, Sentry release | `pc deployprod` |
+| Images, migrations, Swarm stack, proxy config and certificates, Sentry release | `pc deployprod` |
 
 ## 1. Repository skeleton
 
@@ -114,7 +114,6 @@ PROJECT_DOMAIN=<production domain>
 REGISTRY_HOSTNAME=ghcr.io
 REGISTRY_NAMESPACE=grey0ne
 SSL_CERTS_DIR=~/ssl_certs
-NGINX_CONFIG_DIR=~/nginx_configs
 DJANGO_WORKER_COUNT=2
 ```
 
@@ -166,7 +165,7 @@ repository before the first deploy: `deployprod` commits `environment/version` i
 
 ### 4.1 Current setup
 
-All production projects share one server (a Docker Swarm node behind one nginx balancer) and one
+All production projects share one server (a Docker Swarm node behind one reverse proxy, `deploy/proxy`) and one
 DigitalOcean managed Postgres cluster; each project has its own database. Find the current
 values from an existing project instead of hardcoding them:
 
@@ -176,9 +175,10 @@ grep -E '^DATABASE_(HOST|PORT|USER)=' ../<existing project>/environment/env.prod
 ssh root@<existing domain> 'docker node ls'                # node / droplet name
 ```
 
-The balancer is shared: a broken nginx config or a missing certificate of one project stops
-nginx for every site on the server. `certprod` / `deployprod` check certificates before
-touching nginx; do not edit the balancer by hand.
+The balancer is shared, but each project has its own config file in `/app/balancer/sites/`:
+a rejected file (invalid, or claiming a domain of another project) keeps its previous version
+and never affects the other sites. `deployprod` validates the config on the server before
+moving it into place; do not edit the files by hand.
 
 ### 4.2 Server, DNS, database
 
@@ -197,7 +197,7 @@ droplet name>`, `DATABASE_USER=<cluster admin user>` (`PG_CLUSTER_NAME` defaults
 Confirm with the user before running it: it creates paid resources.
 
 A project on a new dedicated server: `initinfra` (droplet, DNS, database), then `initprod`
-(Docker, balancer, certificates), then deploy.
+(Docker, balancer), then deploy.
 
 ### 4.3 Spaces (S3) buckets
 
@@ -213,7 +213,7 @@ Django uses `STATIC_URL = https://static.<domain>/` and `media.<domain>` for med
 (`S3_STATIC_DOMAIN` / `S3_MEDIA_DOMAIN` override them). Enable the CDN for the public buckets with
 the custom subdomain: DigitalOcean creates the CNAME `static.<domain>` →
 `<bucket>.ams3.cdn.digitaloceanspaces.com` and its certificate (the subdomain's DNS zone must be in
-DigitalOcean; otherwise create the CNAME at the registrar). `deployprod` issues certificates only
+DigitalOcean; otherwise create the CNAME at the registrar). The proxy issues certificates only
 for `PROJECT_DOMAIN`, `EXTRA_DOMAINS` and `centrifugo.<domain>`, not for these subdomains.
 A private bucket must never be public: MinIO and Spaces serve objects by bucket policy, private
 files are served through permission checked application endpoints.
@@ -292,16 +292,17 @@ configured by the copied `instrumentation*.ts` / `sentry.*.config.ts`.
 
 Prerequisites on the developer machine: Docker, `python3.15`, ssh access as `root@<domain>`
 (the same key as for the other projects), DNS of `<domain>` already resolving to the server
-(certbot uses an HTTP challenge).
+(the proxy gets the Let's Encrypt certificate with an HTTP challenge).
 
 ```bash
 pc deployprod
 ```
 
-It checks the registry config, issues missing certificates, bumps and commits the version,
+It checks the registry config, bumps and commits the version,
 builds `linux/amd64` images and pushes them to ghcr.io, creates the Sentry release, collects
 Django static into `<name>-static`, renders and copies the Swarm compose and env files, runs
-migrations in the new image, updates the stack and reloads nginx. Push the version commit
+migrations in the new image, updates the stack, uploads the proxy config and waits until the
+domains serve valid certificates. Push the version commit
 afterwards.
 
 One-off production commands and checks:

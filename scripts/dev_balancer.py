@@ -1,28 +1,22 @@
-"""Dev balancer prerequisites: certificates, /etc/hosts entries and the project's nginx config.
+"""Dev balancer prerequisites: certificates, /etc/hosts entries and the project's proxy config.
 
 `dc up` calls ensure_dev_balancer(): it repairs only what is missing or outdated (so sudo is
 asked only when a certificate must be generated/trusted or a hosts entry added): certificates
-are regenerated when they expire soon or do not cover the domain. The nginx config is updated
-only when the rendered config differs. A new config is validated with `nginx -t`
-together with every other project's config before it reaches the shared balancer.
+are regenerated when they expire soon or do not cover the domain. The proxy config is written
+only when the rendered config differs, after `proxy -check` validated it together with every
+other project's config. The proxy picks up changed configs and certificates by itself.
 """
-import contextlib
-import io
 import os
 import shutil
 import subprocess
 import tempfile
 
-from scripts.compose.services import NGINX_IMAGE
+from scripts.compose.services import DEV_PROXY_IMAGE, PROXY_DIR
 from scripts.constants import project_env
 from scripts.deploy_config import get_deploy_config
 from scripts.helpers import run_command
-from scripts.nginx.configuration import (
-    render_centrifugo_dev_nginx_conf,
-    render_dev_nginx_conf,
-    render_extra_dev_domain_nginx_conf,
-)
 from scripts.printing import print_status
+from scripts.proxy.configuration import DEV_CERTS_MOUNT, config_file_name, dev_sites, render_sites
 
 DEVNET = 'devnet'
 HOSTS_FILE = '/etc/hosts'
@@ -35,8 +29,8 @@ CERT_DAYS = 825
 OPENSSL = '/usr/bin/openssl' if os.path.exists('/usr/bin/openssl') else 'openssl'
 
 
-class NginxConfigError(Exception):
-    """The rendered config fails `nginx -t` together with the other projects' configs."""
+class ProxyConfigError(Exception):
+    """The rendered config fails `proxy -check` together with the other projects' configs."""
 
 
 # ── Certificates and hosts ────────────────────────────────────────────────────
@@ -185,9 +179,8 @@ def generate_dev_certs() -> None:
 def ensure_dev_certs() -> bool:
     """Generate, trust and map only what is missing or outdated.
 
-    Returns True when a certificate was regenerated (the balancer must restart to load it).
+    The proxy reloads changed certificate files by itself.
     """
-    regenerated = False
     for cert_name, domain in dev_cert_targets():
         cert, key = _cert_paths(cert_name)
         if not (os.path.isfile(cert) and os.path.isfile(key)):
@@ -199,92 +192,81 @@ def ensure_dev_certs() -> bool:
             gen_cert(cert_name, domain)
             add_cert_to_trusted(cert)
             remove_stale_trusted_certs(domain, cert)
-            regenerated = True
         elif not cert_is_trusted(cert):
             add_cert_to_trusted(cert)
         if not hosts_has(domain):
             update_hosts(domain)
-    return regenerated
 
 
-# ── nginx config ──────────────────────────────────────────────────────────────
+# ── proxy config ──────────────────────────────────────────────────────────────
 
 
-def render_dev_nginx_files() -> dict[str, str]:
-    """File name -> content of the project's dev balancer templates."""
-    config = get_deploy_config()
-    name = project_env.project_name
-    # Rendered into a temp dir for comparison; the renderers' "Generating ..." lines would
-    # point at that dir, so they are silenced.
-    with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
-        render_dev_nginx_conf(os.path.join(tmp, f'{name}.conf.template'))
-        if config.centrifugo_enabled:
-            render_centrifugo_dev_nginx_conf(os.path.join(tmp, f'{name}_centrifugo.conf.template'))
-        for domain in project_env.extra_domains:
-            render_extra_dev_domain_nginx_conf(os.path.join(tmp, f'{name}_{domain}.conf.template'), domain)
-        files: dict[str, str] = {}
-        for file_name in sorted(os.listdir(tmp)):
-            with open(os.path.join(tmp, file_name), encoding='utf-8') as f:
-                files[file_name] = f.read()
-    return files
+def render_dev_proxy_config() -> str:
+    return render_sites(dev_sites())
 
 
-def _changed_files(files: dict[str, str]) -> list[str]:
-    changed: list[str] = []
-    for file_name, content in files.items():
-        path = os.path.join(project_env.nginx_config_dir, file_name)
-        try:
-            with open(path, encoding='utf-8') as f:
-                if f.read() == content:
-                    continue
-        except OSError:
-            pass
-        changed.append(file_name)
-    return changed
+def _config_path() -> str:
+    return os.path.join(project_env.proxy_config_dir, config_file_name())
 
 
-def validate_dev_nginx(files: dict[str, str]) -> None:
-    """`nginx -t` on all projects' templates with ours replaced, using the balancer's mounts."""
+def _config_changed(content: str) -> bool:
+    try:
+        with open(_config_path(), encoding='utf-8') as f:
+            return f.read() != content
+    except OSError:
+        return True
+
+
+def ensure_proxy_image() -> None:
+    """The proxy image of this deploy version, needed for `proxy -check` before `up`."""
+    exists = subprocess.run(
+        ['docker', 'image', 'inspect', DEV_PROXY_IMAGE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    if exists.returncode != 0:
+        print_status(f'Building {DEV_PROXY_IMAGE}')
+        subprocess.run(['docker', 'build', '-t', DEV_PROXY_IMAGE, PROXY_DIR], check=True)
+
+
+def validate_dev_proxy(content: str) -> None:
+    """`proxy -check` on all projects' configs with ours replaced, using the balancer's mounts."""
+    ensure_proxy_image()
     with tempfile.TemporaryDirectory() as tmp:
-        templates = os.path.join(tmp, 'templates')
-        if os.path.isdir(project_env.nginx_config_dir):
-            shutil.copytree(project_env.nginx_config_dir, templates)
-        else:
-            os.makedirs(templates)
-        for file_name, content in files.items():
-            with open(os.path.join(templates, file_name), 'w', encoding='utf-8') as f:
-                f.write(content)
+        if os.path.isdir(project_env.proxy_config_dir):
+            for file_name in os.listdir(project_env.proxy_config_dir):
+                if file_name.endswith(('.yaml', '.yml')) and not file_name.startswith('.'):
+                    shutil.copy(os.path.join(project_env.proxy_config_dir, file_name), tmp)
+        with open(os.path.join(tmp, config_file_name()), 'w', encoding='utf-8') as f:
+            f.write(content)
         result = subprocess.run(
             [
                 'docker', 'run', '--rm',
-                '-e', 'NGINX_ENTRYPOINT_LOCAL_RESOLVERS=yes',
-                '-v', f'{templates}:/etc/nginx/templates:ro',
-                '-v', f'{project_env.ssl_certs_dir}:/app/ssl:ro',
-                NGINX_IMAGE, 'nginx', '-t',
+                '-v', f'{tmp}:/config:ro',
+                '-v', f'{project_env.ssl_certs_dir}:{DEV_CERTS_MOUNT}:ro',
+                DEV_PROXY_IMAGE, '-check', '-config', '/config',
             ],
             capture_output=True,
             text=True,
         )
     if result.returncode != 0:
-        lines = result.stderr.strip().splitlines()
-        reasons = [line for line in lines if '[emerg]' in line] or lines[-1:]
-        raise NginxConfigError('; '.join(reasons) or 'nginx -t failed')
+        raise ProxyConfigError('; '.join(result.stderr.strip().splitlines()) or 'proxy -check failed')
 
 
-def write_dev_nginx(files: dict[str, str]) -> None:
-    os.makedirs(project_env.nginx_config_dir, exist_ok=True)
-    for file_name, content in files.items():
-        path = os.path.join(project_env.nginx_config_dir, file_name)
-        print_status(f'Writing nginx config {path}')
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(content)
+def write_dev_proxy(content: str) -> None:
+    """Written next to the target and renamed: the proxy never reads a half-written file."""
+    os.makedirs(project_env.proxy_config_dir, exist_ok=True)
+    path = _config_path()
+    print_status(f'Writing proxy config {path}')
+    tmp_path = os.path.join(project_env.proxy_config_dir, f'.{config_file_name()}.tmp')
+    with open(tmp_path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    os.replace(tmp_path, path)
 
 
-def update_dev_nginx() -> None:
-    """Validate and write the project's balancer config (`dc updatenginx` restarts after)."""
-    files = render_dev_nginx_files()
-    validate_dev_nginx(files)
-    write_dev_nginx(files)
+def update_dev_proxy() -> None:
+    """Validate and write the project's balancer config (`dc updateproxy`)."""
+    content = render_dev_proxy_config()
+    validate_dev_proxy(content)
+    write_dev_proxy(content)
 
 
 def ensure_devnet() -> None:
@@ -296,22 +278,17 @@ def ensure_devnet() -> None:
         run_command(f'docker network create {DEVNET}')
 
 
-def ensure_dev_balancer() -> bool:
-    """Prerequisites for `dc up`; True when the balancer must restart to pick up changes.
+def ensure_dev_balancer() -> None:
+    """Prerequisites for `dc up`.
 
-    Raises NginxConfigError (nothing written) when the new nginx config is invalid.
+    Raises ProxyConfigError (nothing written) when the new proxy config is invalid.
     """
     ensure_devnet()
-    certs_regenerated = ensure_dev_certs()
-    files = render_dev_nginx_files()
-    changed = _changed_files(files)
-    if not changed:
-        if certs_regenerated:
-            print_status('Dev certificates regenerated, the balancer will restart')
-            return True
-        print_status('Dev certificates and nginx config are up to date')
-        return False
-    print_status(f'nginx config changed: {", ".join(changed)}')
-    validate_dev_nginx(files)
-    write_dev_nginx(files)
-    return True
+    ensure_dev_certs()
+    content = render_dev_proxy_config()
+    if not _config_changed(content):
+        print_status('Proxy config is up to date')
+        return
+    print_status(f'Proxy config changed: {config_file_name()}')
+    validate_dev_proxy(content)
+    write_dev_proxy(content)

@@ -64,7 +64,7 @@ OPS = 'scripts.commands'
 
 COMMANDS: tuple[Command, ...] = (
     # Development
-    command('up', 'Start the dev balancer and the project (certificates, hosts, nginx config first)',
+    command('up', 'Start the dev balancer and the project (certificates, hosts, proxy config first)',
             f'{DEV}:up', compose=True),
     command('rebuild', 'Rebuild images; Next.js: delete package-lock.json and node_modules, npm install',
             f'{DEV}:rebuild', compose=True),
@@ -74,11 +74,11 @@ COMMANDS: tuple[Command, ...] = (
             compose=True, requires='nextjs'),
     command('sh', 'bash in a running container: dc sh <service>', f'{DEV}:shell', compose=True),
     command('tmux', 'tmux session with the logs of the balancer and every component', f'{DEV}:tmux'),
-    command('nginx', 'docker compose for the shared balancer: dc nginx logs -f nginx', f'{DEV}:nginx', compose=True),
-    command('updatenginx update_dev_nginx', 'Validate, write and reload the balancer config', f'{DEV}:updatenginx',
+    command('proxy', 'docker compose for the shared balancer: dc proxy logs -f proxy', f'{DEV}:proxy', compose=True),
+    command('updateproxy', 'Validate and write the balancer config (applied without a restart)',
+            f'{DEV}:updateproxy', compose=True),
+    command('gencerts', 'Regenerate and trust all dev certificates (+ /etc/hosts)', f'{DEV}:gencerts',
             compose=True),
-    command('gencerts', 'Regenerate and trust all dev certificates (+ /etc/hosts), restart the balancer',
-            f'{DEV}:gencerts', compose=True),
     command('django', 'manage.py in the Django container: dc django <args>', f'{DEV}:django', compose=True,
             requires='django'),
     command('format', 'isort + black in the Django container', f'{DEV}:format_code', compose=True,
@@ -106,13 +106,13 @@ COMMANDS: tuple[Command, ...] = (
     command('s3createdevbucket', 'Create the dev S3 bucket', f'{OPS}:create_s3_dev_bucket', group='Data',
             takes_args=False),
     # Production
-    command('deployprod deploy', 'Build, push and deploy the production stack (certificates, migrations, nginx)',
+    command('deployprod deploy', 'Build, push and deploy the production stack (migrations, proxy config)',
             'scripts.deploy_production:deploy_production', group='Production', env='prod', takes_args=False),
-    command('certprod issue_certs', 'Issue missing SSL certificates for the production domains',
-            f'{OPS}:issue_prod_certs', group='Production', env='prod', takes_args=False),
-    command('initprod prod_setup production_setup', 'Set up Docker, the balancer and certificates on the server',
+    command('certprod', 'Check that the production domains serve valid certificates (the proxy issues them)',
+            f'{OPS}:check_prod_https', group='Production', env='prod', takes_args=False),
+    command('initprod prod_setup production_setup', 'Set up Docker and the balancer on the server',
             f'{OPS}:production_setup', group='Production', env='prod', takes_args=False),
-    command('deploybalancer setup_balancer', 'Set up the production balancer', f'{OPS}:setup_balancer',
+    command('deploybalancer setup_balancer', 'Build and (re)start the production proxy', f'{OPS}:setup_balancer',
             group='Production', env='prod', takes_args=False),
     command('initinfra', 'Create the DigitalOcean droplet and database', 'scripts.do_init:init_do_infra',
             group='Production', env='prod', takes_args=False),
@@ -186,13 +186,13 @@ def _report(exc: Exception) -> int | None:
         return 1
     # Imported here: these modules need the environment.
     from scripts.deploy_config import DeployConfigError
-    from scripts.dev_balancer import NginxConfigError
+    from scripts.dev_balancer import ProxyConfigError
 
     if isinstance(exc, DeployConfigError):
         print_error(str(exc))
         return 1
-    if isinstance(exc, NginxConfigError):
-        print_error(f'New nginx config is invalid, the balancer was not touched: {exc}')
+    if isinstance(exc, ProxyConfigError):
+        print_error(f'New proxy config is invalid, the balancer was not touched: {exc}')
         return 1
     return None
 

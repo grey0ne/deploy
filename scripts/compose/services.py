@@ -2,6 +2,7 @@ import os
 
 from scripts.constants import (
     COMPOSE_DIR,
+    DEPLOY_DIR,
     DJANGO_DATA_DIR,
     DJANGO_DIR,
     FASTAPI_BUILD_CONTEXT,
@@ -13,6 +14,7 @@ from scripts.compose.fastapi_image import DEV_DOCKERFILE, FASTAPI_PORT, uvicorn_
 from scripts.deploy_config import BackendName, DeployConfig
 
 DJANGO_PORT = 8000
+NEXTJS_PORT = 3000
 
 GENERATED_DIR = os.path.join(COMPOSE_DIR, 'generated')
 DOCKER_SOCKET = '/var/run/docker.sock'
@@ -21,7 +23,19 @@ MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z'
 POSTGRES_IMAGE = 'postgres:16.15-alpine'
 REDIS_IMAGE = 'redis:8.10.3-alpine'
 CENTRIFUGO_IMAGE = 'centrifugo/centrifugo:v6.10.2'
-NGINX_IMAGE = 'nginx:1.30.7-alpine-slim'
+
+# The reverse proxy (deploy/proxy). Dev: built locally by `dc up` when the tag is missing.
+# Production: built locally and pushed with the project images; the name has no project in it,
+# so every project of the registry namespace refers to the same balancer image. Bump the version
+# with every change of deploy/proxy: dev rebuilds only a missing tag, deployprod rolls out a new one.
+PROXY_VERSION = '0.1.0'
+DEV_PROXY_IMAGE = f'deploy-proxy:{PROXY_VERSION}'
+PROXY_DIR = os.path.join(DEPLOY_DIR, 'proxy')
+PROD_BALANCER_DIR = '/app/balancer'
+# Site files of all projects on the server, one per project
+PROD_PROXY_SITES_DIR = f'{PROD_BALANCER_DIR}/sites'
+# Let's Encrypt account and certificates
+PROD_PROXY_ACME_DIR = f'{PROD_BALANCER_DIR}/acme'
 
 
 def _env_files_dev() -> list[str]:
@@ -351,18 +365,18 @@ def build_dev_balancer_compose() -> dict:
     return {
         'name': 'balancer',
         'services': {
-            'nginx': {
-                'image': NGINX_IMAGE,
-                'container_name': 'nginx',
-                'environment': {
-                    'NGINX_ENTRYPOINT_LOCAL_RESOLVERS': 'yes',
-                },
+            'proxy': {
+                'image': DEV_PROXY_IMAGE,
+                'build': {'context': PROXY_DIR},
+                'container_name': 'proxy',
+                'command': ['-config', '/config'],
                 'volumes': [
-                    '${NGINX_CONFIG_DIR}:/etc/nginx/templates',
-                    '${SSL_CERTS_DIR}:/app/ssl',
+                    f'{project_env.proxy_config_dir}:/config:ro',
+                    f'{project_env.ssl_certs_dir}:/app/ssl:ro',
                 ],
                 'ports': ['80:80', '443:443'],
                 'networks': ['devnet'],
+                'restart': 'unless-stopped',
             },
         },
         'networks': {
@@ -371,17 +385,30 @@ def build_dev_balancer_compose() -> dict:
     }
 
 
+def _host_port(port: int) -> dict:
+    # Host mode instead of the swarm routing mesh: the proxy sees the real client addresses.
+    return {'target': port, 'published': port, 'protocol': 'tcp', 'mode': 'host'}
+
+
+def prod_proxy_image() -> str:
+    return f'{project_env.registry_hostname}/{project_env.registry_namespace}/deploy-proxy:{PROXY_VERSION}'
+
+
 def build_prod_balancer_compose() -> dict:
     return {
         'services': {
-            'nginx': {
-                'image': NGINX_IMAGE,
-                'volumes': [
-                    '/app/certbot/certificates:/etc/letsencrypt',
-                    '/app/certbot/challenge:/var/www/certbot',
-                    '/app/balancer/conf:/etc/nginx/conf.d',
+            'proxy': {
+                'image': prod_proxy_image(),
+                'command': [
+                    '-config', '/config',
+                    '-acme-cache', '/acme',
+                    '-acme-email', project_env.acme_email,
                 ],
-                'ports': ['80:80', '443:443'],
+                'volumes': [
+                    f'{PROD_PROXY_SITES_DIR}:/config:ro',
+                    f'{PROD_PROXY_ACME_DIR}:/acme',
+                ],
+                'ports': [_host_port(80), _host_port(443)],
                 'networks': ['prodnet'],
             },
         },
