@@ -93,8 +93,7 @@ inside this submodule.
 
 ### Next.js (`nextjs_frontend/`)
 
-- Copy `package.json` (rename), `next.config.ts`, `tsconfig.json`, `eslint.config.mjs` (flat
-  config, ESLint 9+), `proxy.ts`, `global.ts`, `constants.ts` (`ENABLED_LOCALES`), `i18n/`,
+- Copy `package.json` (rename), `next.config.ts`, `tsconfig.json`, `proxy.ts`, `global.ts`, `constants.ts` (`ENABLED_LOCALES`), `i18n/`,
   `instrumentation*.ts`, `sentry.*.config.ts`, `app/theme.ts`, `app/global-error.tsx`,
   `app/[locale]/{layout,page,not-found}.tsx`, `messages/{ru,en}.json`.
 - The frontend DSN comes from `NEXT_PUBLIC_SENTRY_FRONTEND_DSN`. `next.config.ts` uploads source
