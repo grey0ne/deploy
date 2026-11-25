@@ -122,5 +122,27 @@ class DevBalancerTest(unittest.TestCase):
         self.assertTrue(self.balancer_started(self.up(DEV_PROXY_IMAGE)))
 
 
+class ProdCheckImageTest(unittest.TestCase):
+    """deployprod validates the configs with the running proxy by its digest: no registry pull."""
+
+    def setUp(self) -> None:
+        from scripts.deploy_production import proxy_check_image
+        self.check_image = proxy_check_image
+        self.current = prod_proxy_image()
+
+    def test_running_same_version_by_digest(self) -> None:
+        running = f'{self.current}@sha256:abc'
+        self.assertEqual(self.check_image(running, self.current), running)
+
+    def test_running_newer_by_digest(self) -> None:
+        running = f'{with_tag(self.current, bumped(PROXY_VERSION, 1))}@sha256:abc'
+        self.assertEqual(self.check_image(running, self.current), running)
+
+    def test_older_or_missing_uses_this_version(self) -> None:
+        older = f'{with_tag(self.current, bumped(PROXY_VERSION, -1))}@sha256:abc'
+        self.assertEqual(self.check_image(older, self.current), self.current)
+        self.assertEqual(self.check_image(None, self.current), self.current)
+
+
 if __name__ == '__main__':
     unittest.main()

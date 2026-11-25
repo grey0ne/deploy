@@ -97,13 +97,20 @@ def build_proxy_image():
     build_image("proxy", f"{PROXY_DIR}/Dockerfile", PROXY_DIR, image=prod_proxy_image())
 
 
-def deployed_proxy_image() -> str | None:
-    """Image of the running proxy service without its digest; None when the server runs no proxy."""
+def deployed_proxy_reference() -> str | None:
+    """Image of the running proxy service as swarm runs it (`<image>:<tag>@sha256:...`, the
+    digest is what the server has locally); None when the server runs no proxy."""
     output = remote_command_output(
         "docker service inspect balancer_proxy --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}' "
         "2>/dev/null || true"
     )
-    return output.strip().split('@')[0] or None
+    return output.strip() or None
+
+
+def deployed_proxy_image() -> str | None:
+    """Image of the running proxy service without its digest; None when the server runs no proxy."""
+    reference = deployed_proxy_reference()
+    return reference.split('@')[0] if reference else None
 
 
 def start_balancer():
