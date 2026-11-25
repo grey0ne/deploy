@@ -5,8 +5,9 @@ import tempfile
 from scripts.shell_commands import get_init_swarm_script
 from scripts.commands import (
     copy_to_remote, get_image_hash, update_swarm, check_prod_https, ensure_balancer,
-    collect_static, upload_images, login_registry, build_images
+    collect_static, upload_images, login_registry, build_images, deployed_proxy_image,
 )
+from scripts import proxy_version
 from scripts.compose.services import PROD_PROXY_SITES_DIR, prod_proxy_image
 from scripts.helpers import run_command, run_remote_commands
 from scripts.printing import print_status
@@ -23,6 +24,8 @@ def update_prod_proxy():
     """Validate the project's proxy config together with the other projects' configs on the server
     (`proxy -check`), then move it into place; the proxy applies it without a restart."""
     print_status(f"Updating the proxy config on {project_env.project_domain}")
+    # Checked by the proxy that will read it: a newer running balancer may know more fields.
+    check_image = proxy_version.check_image(deployed_proxy_image(), prod_proxy_image())
     name = config_file_name()
     staged = f"{PROD_PROXY_SITES_DIR}/.{name}.new"
     with tempfile.TemporaryDirectory() as tmp:
@@ -37,7 +40,7 @@ def update_prod_proxy():
         trap 'rm -rf "$CHECK_DIR"' EXIT
         cp {PROD_PROXY_SITES_DIR}/*.yaml "$CHECK_DIR"/ 2>/dev/null || true
         cp {staged} "$CHECK_DIR"/{name}
-        docker run --rm -v "$CHECK_DIR":/config:ro {prod_proxy_image()} -check -config /config
+        docker run --rm -v "$CHECK_DIR":/config:ro {check_image} -check -config /config
         mv {staged} {PROD_PROXY_SITES_DIR}/{name}
     """], check=True)
 

@@ -217,7 +217,10 @@ In dev the image `deploy-proxy:<PROXY_VERSION>` is built by `dc up` when the tag
 production it is built locally (`linux/amd64`) and pushed with the project images as
 `<REGISTRY_HOSTNAME>/<REGISTRY_NAMESPACE>/deploy-proxy:<PROXY_VERSION>`: no project name, so the
 projects of one namespace share the balancer image. Bump `PROXY_VERSION` with every change of
-`proxy/`; `deployprod` then rolls the new version out (the balancer runs another image).
+`proxy/`; `deployprod` then rolls the new version out when the balancer runs an older one. The
+balancer is shared, so it is never downgraded: a project with an older deploy submodule keeps a
+newer running balancer (and validates its config with it), `deploybalancer` refuses, and `dc up`
+keeps a newer dev balancer.
 
 The proxy can also expose chosen local dev sites on public domains of the production proxy
 through a tunnel the dev proxy keeps open (`tunnel_server` / `tunnel_client` sections, see

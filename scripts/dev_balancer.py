@@ -12,6 +12,10 @@ import subprocess
 import tempfile
 
 from scripts.compose.services import DEV_PROXY_IMAGE, PROXY_DIR
+from scripts import proxy_version
+
+# container_name of the dev balancer (compose/services.py build_dev_balancer_compose)
+DEV_PROXY_CONTAINER = 'proxy'
 from scripts.constants import project_env
 from scripts.deploy_config import get_deploy_config
 from scripts.helpers import run_command
@@ -227,9 +231,30 @@ def ensure_proxy_image() -> None:
         subprocess.run(['docker', 'build', '-t', DEV_PROXY_IMAGE, PROXY_DIR], check=True)
 
 
+def running_dev_proxy_image() -> str | None:
+    """Image of the dev balancer container; None when it does not exist."""
+    result = subprocess.run(
+        ['docker', 'inspect', DEV_PROXY_CONTAINER, '--format', '{{.Config.Image}}'],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def dev_proxy_is_newer() -> bool:
+    """The running dev balancer is newer than the proxy of this deploy version (keep it)."""
+    return proxy_version.is_newer(running_dev_proxy_image(), DEV_PROXY_IMAGE)
+
+
 def validate_dev_proxy(content: str) -> None:
-    """`proxy -check` on all projects' configs with ours replaced, using the balancer's mounts."""
-    ensure_proxy_image()
+    """`proxy -check` on all projects' configs with ours replaced, using the balancer's mounts.
+
+    Checked by the proxy that will read the config: a newer running balancer may know more fields.
+    """
+    check_image = proxy_version.check_image(running_dev_proxy_image(), DEV_PROXY_IMAGE)
+    if check_image == DEV_PROXY_IMAGE:
+        ensure_proxy_image()
     with tempfile.TemporaryDirectory() as tmp:
         if os.path.isdir(project_env.proxy_config_dir):
             for file_name in os.listdir(project_env.proxy_config_dir):
@@ -242,7 +267,7 @@ def validate_dev_proxy(content: str) -> None:
                 'docker', 'run', '--rm',
                 '-v', f'{tmp}:/config:ro',
                 '-v', f'{project_env.ssl_certs_dir}:{DEV_CERTS_MOUNT}:ro',
-                DEV_PROXY_IMAGE, '-check', '-config', '/config',
+                check_image, '-check', '-config', '/config',
             ],
             capture_output=True,
             text=True,

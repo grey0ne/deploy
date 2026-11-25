@@ -114,6 +114,11 @@ class RemovalScriptTest(unittest.TestCase):
 
 
 class ConfirmationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        quiet = mock.patch.object(remove_production, 'print_warning')
+        quiet.start()
+        self.addCleanup(quiet.stop)
+
     def test_project_name_confirms(self) -> None:
         with mock.patch('builtins.input', return_value='demo'):
             self.assertTrue(remove_production.confirmed([]))

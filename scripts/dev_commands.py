@@ -4,10 +4,12 @@ import subprocess
 from collections.abc import Sequence
 from typing import IO
 
-from scripts.compose.services import POSTGRES_IMAGE, backend_internal_url
+from scripts.compose.services import DEV_PROXY_IMAGE, POSTGRES_IMAGE, backend_internal_url
 from scripts.constants import project_env
 from scripts.deploy_config import get_deploy_config
-from scripts.dev_balancer import ensure_dev_balancer, generate_dev_certs, update_dev_proxy
+from scripts.dev_balancer import (
+    dev_proxy_is_newer, ensure_dev_balancer, generate_dev_certs, running_dev_proxy_image, update_dev_proxy,
+)
 from scripts.paths import BACKUP_DIR, BASE_ENV_FILE, DEV_ENV_FILE, GENERATED_COMPOSE_DIR
 from scripts.printing import print_status
 
@@ -40,8 +42,12 @@ def up(_args: list[str]) -> None:
     # missing or outdated (sudo is asked only then); a changed config is validated first.
     # The running proxy picks up config and certificate changes without a restart.
     ensure_dev_balancer()
-    # --remove-orphans: the nginx container of the previous balancer holds the same ports.
-    run(balancer_compose('up', '-d', '--remove-orphans'))
+    if dev_proxy_is_newer():
+        # Shared by every project: a project with an older deploy submodule must not downgrade it.
+        print_status(f'The dev balancer runs {running_dev_proxy_image()}, newer than {DEV_PROXY_IMAGE}: kept')
+    else:
+        # --remove-orphans: the nginx container of the previous balancer holds the same ports.
+        run(balancer_compose('up', '-d', '--remove-orphans'))
     run(dev_compose('up', '-d'))
 
 

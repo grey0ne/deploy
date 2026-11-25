@@ -9,7 +9,7 @@ from scripts.compose.services import (
     GENERATED_DIR, PROD_BALANCER_DIR, PROD_PROXY_ACME_DIR, PROD_PROXY_SITES_DIR, PROXY_DIR, prod_proxy_image,
 )
 from scripts.deploy_config import get_deploy_config
-from scripts import swarm_progress
+from scripts import proxy_version, swarm_progress
 from scripts.helpers import run_command, run_remote_commands, remote_command_output, remote_command_succeeds
 from scripts.printing import print_error, print_status, print_warning
 from scripts.proxy.configuration import prod_sites, site_domains
@@ -124,8 +124,17 @@ def start_balancer():
 
 
 def setup_balancer():
-    """Build and push the proxy image like the project images, then (re)start the balancer."""
+    """Build and push the proxy image like the project images, then (re)start the balancer.
+
+    Never downgrades: a newer running proxy may serve features the other projects rely on.
+    """
     check_registry_config()
+    deployed = deployed_proxy_image()
+    if proxy_version.is_newer(deployed, prod_proxy_image()):
+        raise EnvConfigError(
+            f'The balancer runs {deployed}, newer than {prod_proxy_image()} of this deploy version: '
+            'update the deploy submodule first'
+        )
     build_proxy_image()
     login_registry()
     run_command(f"docker push {prod_proxy_image()}")
@@ -135,16 +144,22 @@ def setup_balancer():
 def ensure_balancer():
     """Rolls out a new PROXY_VERSION (its image is built and pushed with the project images).
 
+    Only upgrades: a project with an older deploy submodule keeps a newer running proxy.
+
     A server still running the nginx balancer is not switched: it serves the sites of every
     project, which keep working only once each of them has uploaded its proxy config. The switch
     is `dc deploybalancer`.
     """
     deployed = deployed_proxy_image()
-    if deployed == prod_proxy_image():
+    if deployed and proxy_version.is_newer(deployed, prod_proxy_image()):
+        print_status(
+            f"The balancer runs {deployed}, newer than {prod_proxy_image()} of this deploy version: kept"
+        )
         return
     if deployed:
-        print_status(f"Updating the balancer: {deployed} -> {prod_proxy_image()}")
-        start_balancer()
+        if proxy_version.needs_update(deployed, prod_proxy_image()):
+            print_status(f"Updating the balancer: {deployed} -> {prod_proxy_image()}")
+            start_balancer()
         return
     print_warning(
         "The server runs the nginx balancer: it keeps serving the sites. After every project on the "
