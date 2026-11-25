@@ -110,8 +110,6 @@ inside this submodule.
 ```
 PROJECT_NAME=<name>
 PROJECT_DOMAIN=<production domain>
-REGISTRY_HOSTNAME=ghcr.io
-REGISTRY_NAMESPACE=grey0ne
 DJANGO_WORKER_COUNT=2
 ```
 

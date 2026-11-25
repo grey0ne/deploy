@@ -15,8 +15,8 @@ class Environment:
     extra_domains: list[str] = field(default_factory=list)
     registry_username: str | None = None
     registry_password: str | None = None
-    registry_hostname: str | None = None
-    registry_namespace: str | None = None
+    registry_hostname: str
+    registry_namespace: str
     proxy_config_dir: str
     acme_email: str
     prod_app_path: str
@@ -66,8 +66,8 @@ def read_env() -> Environment:
         extra_domains=extra_domains_str.split(',') if len(extra_domains_str) > 0 else [],
         registry_username=os.getenv("REGISTRY_USERNAME"),
         registry_password=os.getenv("REGISTRY_PASSWORD"),
-        registry_hostname=os.getenv("REGISTRY_HOSTNAME"),
-        registry_namespace=os.getenv("REGISTRY_NAMESPACE"),
+        registry_hostname=get_config_value("REGISTRY_HOSTNAME", default='ghcr.io'),
+        registry_namespace=get_config_value("REGISTRY_NAMESPACE", default='grey0ne'),
         # Env files are parsed without a shell (scripts/env_files.py), so "~" is expanded here.
         proxy_config_dir=os.path.expanduser(get_config_value("PROXY_CONFIG_DIR", default='~/proxy_configs')),
         # Contact of the Let's Encrypt account of the production proxy
