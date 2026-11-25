@@ -1,15 +1,25 @@
 import time
+import socket
+
 from scripts.do_utils import (
-    get_or_create_droplet, get_or_create_project, get_public_address,
+    get_or_create_droplet, get_or_create_project, get_public_address, list_droplets,
     create_or_update_domain_record,
     get_or_create_pg_cluster, get_existing_pg_cluster,
     get_or_create_pg_user, get_or_create_pg_database, add_pg_firewall_rule,
     DOException
 )
 from scripts.helpers import save_env_option
+from scripts.droplet_choice import NewDroplet, choose_droplet
 from scripts.constants import (
     project_env, STATUS_CHECK_INTERVAL
 )
+
+
+def _resolve(domain: str) -> str | None:
+    try:
+        return socket.gethostbyname(domain)
+    except OSError:
+        return None
 
 
 def init_do_infra():
@@ -24,13 +34,29 @@ def init_do_infra():
         if not value:
             print(f"{var_name} is not set")
             return
+    # Asked before anything is created: an existing droplet or a new one from the template
+    choice = choose_droplet(
+        list_droplets(),
+        NewDroplet(
+            name=project_env.do_droplet_name,
+            size=project_env.do_droplet_size or '',
+            region=project_env.do_region or '',
+            image=project_env.do_droplet_os_image or '',
+        ),
+        preferred_name=project_env.do_droplet_name,
+        domain_address=_resolve(project_env.project_domain),
+    )
+    if choice.droplet is None and not project_env.do_ssh_fingerprint:
+        print("DO_KEY_FINGERPRINT is not set: a new droplet needs the SSH key to log in")
+        return
+    save_env_option('DO_DROPLET_NAME', choice.name)
     project_data = get_or_create_project(project_env.project_name, project_env.project_description)
     print(f"Using DO project {project_env.project_name} with id {project_data['id']}")
-    droplet_data = get_or_create_droplet(project_env.do_droplet_name, project_data["id"])
+    droplet_data = choice.droplet or get_or_create_droplet(choice.name, project_data["id"])
     public_address = get_public_address(droplet_data)
     if public_address is None:
-        raise DOException(f"Active droplet {project_env.do_droplet_name} doesn't have public address, aborting")
-    print(f"Creating DNS record for droplet {project_env.do_droplet_name} with IP {public_address}")
+        raise DOException(f"Active droplet {choice.name} doesn't have public address, aborting")
+    print(f"Creating DNS record for droplet {choice.name} with IP {public_address}")
     create_or_update_domain_record(project_env.project_domain, public_address)
     pg_cluster = get_or_create_pg_cluster(project_env.pg_cluster_name, project_data["id"])
     cluster_status = pg_cluster['status']

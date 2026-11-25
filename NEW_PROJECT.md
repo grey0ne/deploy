@@ -185,11 +185,14 @@ New project on the existing server (the usual case):
    other users.
 3. Do **not** run `initprod` / `deploybalancer`: they reinstall Docker and the shared balancer.
 
-`pc initinfra` automates DNS + database + firewall, but by default creates a new droplet
-`<name>-app`. To reuse the existing server set in `env.prod`: `DO_TOKEN`, `DO_DROPLET_NAME=<existing
-droplet name>`, `DATABASE_USER=<cluster admin user>` (`PG_CLUSTER_NAME` defaults to
-`communal-db`; the database is `DATABASE_NAME`, default `<name>`). It writes `DATABASE_NAME`,
-`DATABASE_HOST`, `DATABASE_PORT` and, for a new user, `DATABASE_PASSWORD` into `env.prod`.
+`pc initinfra` automates DNS + database + firewall. It needs `DO_TOKEN` and
+`DATABASE_USER=<cluster admin user>` in `env.prod` (`PG_CLUSTER_NAME` defaults to `communal-db`;
+the database is `DATABASE_NAME`, default `<name>`). Before creating anything it lists the droplets
+of the account and asks which one to deploy to (default: `DO_DROPLET_NAME`, otherwise the droplet
+the domain already points to) or offers a new droplet from the template (`<name>-app` or another
+name, `DO_SIZE`, `DO_REGION`, `DO_DROPLET_OS_IMAGE`; needs `DO_KEY_FINGERPRINT`, confirmed
+separately). It writes `DO_DROPLET_NAME`, `DATABASE_NAME`, `DATABASE_HOST`, `DATABASE_PORT` and,
+for a new user, `DATABASE_PASSWORD` into `env.prod`. It is interactive: the user runs it.
 Confirm with the user before running it: it creates paid resources.
 
 A project on a new dedicated server: `initinfra` (droplet, DNS, database), then `initprod`

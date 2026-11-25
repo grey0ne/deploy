@@ -53,6 +53,17 @@ def get_or_create_project(name: str, description: str):
     response = do_post_request(url, project_data)
     return response["project"]
 
+def list_droplets() -> list[dict[str, Any]]:
+    """All droplets of the account (the API pages them)."""
+    droplets: list[dict[str, Any]] = []
+    url: str | None = f"{DROPLETS_URL}?per_page=200"
+    while url:
+        data = do_get_request(url)
+        droplets.extend(data["droplets"])
+        url = data.get("links", {}).get("pages", {}).get("next")
+    return droplets
+
+
 def get_existing_droplet(name: str) -> dict[str, Any] | None:
     url = f"{DROPLETS_URL}?name={name}"
     data = do_get_request(url)

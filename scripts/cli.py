@@ -117,7 +117,7 @@ COMMANDS: tuple[Command, ...] = (
             f'{OPS}:production_setup', group='Production', env='prod', takes_args=False),
     command('deploybalancer setup_balancer', 'Build and (re)start the production proxy', f'{OPS}:setup_balancer',
             group='Production', env='prod', takes_args=False),
-    command('initinfra', 'Create the DigitalOcean droplet and database', 'scripts.do_init:init_do_infra',
+    command('initinfra', 'DigitalOcean DNS, database and firewall; asks for the droplet (existing or new)', 'scripts.do_init:init_do_infra',
             group='Production', env='prod', takes_args=False),
     command('djangoprod', 'manage.py in the production Django image: dc djangoprod <args>', f'{PROD}:djangoprod',
             group='Production', env='prod', requires='django'),
