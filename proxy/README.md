@@ -35,6 +35,48 @@ sites:
   methods with a body). An unknown domain fails the TLS handshake (no certificate) or gets 421/404.
 - Unknown fields are errors.
 
+## Tunnel: local sites on public domains
+
+A dev proxy can serve chosen local sites on public domains of the production proxy. The dev
+proxy keeps one TLS connection to the production proxy (`https://<tunnel domain>/connect`,
+HTTP Upgrade `proxy-tunnel/1`), authenticates with a token and lists its public domains. If the
+token allows them and none is a site of the production config or a domain of another dev
+proxy, the production proxy gets Let's Encrypt certificates for them and sends their requests
+through the connection (a yamux session: one stream per upstream connection, so keep-alive,
+WebSockets and streamed responses work). The dev proxy routes them with the routes of the
+local site, with the public `Host` and the visitor's address in `X-Forwarded-For` / `X-Real-IP`.
+
+Production, one file of the directory (for example `/app/balancer/sites/tunnel.yaml`, written by
+hand; DNS of the tunnel domain and of the public domains must point to the server):
+
+```yaml
+tunnel_server:
+  domain: tunnel.example.com      # the endpoint the dev proxies connect to
+  tls: {acme: true}
+  clients:
+    - name: laptop
+      token: <at least 32 random characters: openssl rand -hex 32>
+      domains: ["*.dev.example.com"]   # public domains this client may serve (exact or *.suffix)
+```
+
+Dev, one file of the directory (for example `~/proxy_configs/tunnel.yaml`); only the listed sites
+are exposed:
+
+```yaml
+tunnel_client:
+  server: tunnel.example.com      # host[:port], port 443 by default
+  token: <the token of the client>
+  expose:
+    - domain: hcmanager.dev.example.com   # public domain
+      site: dev.hcmanager.example.com     # local site whose routes serve it
+```
+
+- The sites of the production config always win: a site added later for a tunnel domain takes
+  it over. A reconnect of the same client replaces its previous session.
+- The dev proxy reconnects with a growing pause (up to a minute) and logs why it is not
+  connected (for example a rejected domain). While it is disconnected its domains answer 502.
+- Backends see the public host: allow it (Django `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`).
+
 ## Reloads
 
 The config directory and the certificate files are checked every `-poll` (2s) and on `SIGHUP`;

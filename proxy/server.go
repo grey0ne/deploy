@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -35,10 +36,18 @@ type Proxy struct {
 	certs      *CertFiles
 	transports *Transports
 	acme       *autocert.Manager
+	// Connected dev proxies (production side of the tunnel).
+	tunnels *TunnelRegistry
 
 	reloadMu sync.Mutex
-	accepted map[string][]Site
+	accepted map[string]*ParsedFile
 	dirState string
+
+	// Dev side of the tunnel; the dialer and the TLS config are replaced in tests.
+	tunnelMu   sync.Mutex
+	tunnelRun  *tunnelClientRun
+	tunnelTLS  *tls.Config
+	tunnelDial func(ctx context.Context, network, address string) (net.Conn, error)
 
 	warmMu  sync.Mutex
 	warmed  map[string]bool
@@ -51,7 +60,11 @@ func NewProxy(options Options) *Proxy {
 		certs:      NewCertFiles(),
 		transports: NewTransports(),
 		warmed:     map[string]bool{},
+		tunnels:    NewTunnelRegistry(),
+		tunnelTLS:  &tls.Config{},
+		tunnelDial: (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 	}
+	p.tunnels.onConnect = p.warmDomains
 	p.table.Store(&Table{hosts: map[string]*siteHandler{}})
 	if options.ACMECache != "" {
 		p.acme = &autocert.Manager{
@@ -85,6 +98,11 @@ func (p *Proxy) Reload() {
 	p.table.Store(table)
 	p.certs.Refresh(usedCerts(table))
 	slog.Info("config loaded", "files", len(accepted), "domains", strings.Join(table.domains(), " "))
+	if table.tunnelServer != nil {
+		slog.Info("tunnel server", "domain", table.tunnelServer.Domain, "clients", len(table.tunnelServer.Clients))
+	}
+	warnMissingTunnelSites(table)
+	p.updateTunnelClient(table.tunnelClient)
 	if p.serving.Load() {
 		p.warmACME()
 	}
@@ -139,6 +157,9 @@ func usedCerts(table *Table) map[certKey]bool {
 			used[certKey{site.TLS.Cert, site.TLS.Key}] = true
 		}
 	}
+	if server := table.tunnelServer; server != nil && !server.TLS.ACME {
+		used[certKey{server.TLS.Cert, server.TLS.Key}] = true
+	}
 	return used
 }
 
@@ -155,25 +176,52 @@ func (p *Proxy) site(host string) *siteHandler {
 	return p.table.Load().hosts[host]
 }
 
+// tunnelServer returns the tunnel endpoint config when the host is its domain.
+func (p *Proxy) tunnelServer(host string) *TunnelServer {
+	if server := p.table.Load().tunnelServer; server != nil && server.Domain == host {
+		return server
+	}
+	return nil
+}
+
+// knownHost: a site, the tunnel endpoint or a domain of a tunnel.
+func (p *Proxy) knownHost(host string) bool {
+	return p.site(host) != nil || p.tunnelServer(host) != nil || p.tunnels.known(host)
+}
+
+// tlsFor returns the TLS settings of the host; tunnel domains always use ACME.
+func (p *Proxy) tlsFor(host string) (TLSConfig, bool) {
+	if site := p.site(host); site != nil {
+		return site.TLS, true
+	}
+	if server := p.tunnelServer(host); server != nil {
+		return server.TLS, true
+	}
+	if p.tunnels.known(host) {
+		return TLSConfig{ACME: true}, true
+	}
+	return TLSConfig{}, false
+}
+
 func (p *Proxy) acmeHostPolicy(_ context.Context, host string) error {
-	if site := p.site(normalizeHost(host)); site != nil && site.TLS.ACME {
+	if config, ok := p.tlsFor(normalizeHost(host)); ok && config.ACME {
 		return nil
 	}
 	return fmt.Errorf("%s is not an ACME domain of the config", host)
 }
 
 func (p *Proxy) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	site := p.site(normalizeHost(hello.ServerName))
-	if site == nil {
+	config, ok := p.tlsFor(normalizeHost(hello.ServerName))
+	if !ok {
 		return nil, fmt.Errorf("unknown server name %q", hello.ServerName)
 	}
-	if site.TLS.ACME {
+	if config.ACME {
 		if p.acme == nil {
 			return nil, errors.New("ACME is disabled (no -acme-cache)")
 		}
 		return p.acme.GetCertificate(hello)
 	}
-	return p.certs.Get(site.TLS.Cert, site.TLS.Key)
+	return p.certs.Get(config.Cert, config.Key)
 }
 
 func (p *Proxy) TLSConfig() *tls.Config {
@@ -188,22 +236,31 @@ func (p *Proxy) TLSConfig() *tls.Config {
 	}
 }
 
-// HTTPSHandler serves the sites.
+// HTTPSHandler serves the sites, the tunnel endpoint and the domains of the tunnels. The
+// sites of the config win over tunnels, also when a site appears after a tunnel connected.
 func (p *Proxy) HTTPSHandler() http.Handler {
 	return logRequests(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		site := p.site(requestHost(r))
-		if site == nil {
-			http.Error(w, "unknown host", http.StatusMisdirectedRequest)
+		host := requestHost(r)
+		if site := p.site(host); site != nil {
+			site.ServeHTTP(w, r)
 			return
 		}
-		site.ServeHTTP(w, r)
+		if server := p.tunnelServer(host); server != nil {
+			p.tunnels.ServeConnect(w, r, server, func(domain string) bool { return p.site(domain) != nil })
+			return
+		}
+		if p.tunnels.known(host) {
+			p.tunnels.ServeDomain(w, r, host)
+			return
+		}
+		http.Error(w, "unknown host", http.StatusMisdirectedRequest)
 	}))
 }
 
 // HTTPHandler answers ACME http-01 challenges and redirects the sites to https.
 func (p *Proxy) HTTPHandler() http.Handler {
 	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if p.site(requestHost(r)) == nil {
+		if !p.knownHost(requestHost(r)) {
 			http.Error(w, "unknown host", http.StatusNotFound)
 			return
 		}
@@ -225,13 +282,24 @@ func (p *Proxy) StartServing() {
 // visitor does not wait for the issuance and a failure (e.g. DNS not pointing here) is
 // logged right after a deploy. A failed domain is retried on the next reload.
 func (p *Proxy) warmACME() {
+	table := p.table.Load()
+	var domains []string
+	for domain, site := range table.hosts {
+		if site.TLS.ACME {
+			domains = append(domains, domain)
+		}
+	}
+	if server := table.tunnelServer; server != nil && server.TLS.ACME {
+		domains = append(domains, server.Domain)
+	}
+	p.warmDomains(domains)
+}
+
+func (p *Proxy) warmDomains(domains []string) {
 	if p.acme == nil {
 		return
 	}
-	for domain, site := range p.table.Load().hosts {
-		if !site.TLS.ACME {
-			continue
-		}
+	for _, domain := range domains {
 		p.warmMu.Lock()
 		started := p.warmed[domain]
 		p.warmed[domain] = true

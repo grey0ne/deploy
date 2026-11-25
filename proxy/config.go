@@ -21,7 +21,16 @@ import (
 // FileConfig is one YAML file of the config directory. Every project owns one file,
 // so a broken file never affects the sites of the other files.
 type FileConfig struct {
-	Sites []SiteConfig `yaml:"sites"`
+	Sites        []SiteConfig        `yaml:"sites"`
+	TunnelServer *TunnelServerConfig `yaml:"tunnel_server"`
+	TunnelClient *TunnelClientConfig `yaml:"tunnel_client"`
+}
+
+// ParsedFile is a validated FileConfig.
+type ParsedFile struct {
+	Sites        []Site
+	TunnelServer *TunnelServer
+	TunnelClient *TunnelClient
 }
 
 type SiteConfig struct {
@@ -78,7 +87,7 @@ type Route struct {
 
 // ParseFile decodes and validates one config file. Unknown fields are errors: a typo must not
 // silently change the routing of a site.
-func ParseFile(data []byte) ([]Site, error) {
+func ParseFile(data []byte) (*ParsedFile, error) {
 	var config FileConfig
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -86,8 +95,8 @@ func ParseFile(data []byte) ([]Site, error) {
 	if err := decoder.Decode(&config); err != nil && !errors.Is(err, io.EOF) {
 		return nil, err
 	}
+	parsed := &ParsedFile{Sites: make([]Site, 0, len(config.Sites))}
 	domains := map[string]bool{}
-	sites := make([]Site, 0, len(config.Sites))
 	for i, siteConfig := range config.Sites {
 		site, err := validateSite(siteConfig)
 		if err != nil {
@@ -99,9 +108,38 @@ func ParseFile(data []byte) ([]Site, error) {
 			}
 			domains[domain] = true
 		}
-		sites = append(sites, site)
+		parsed.Sites = append(parsed.Sites, site)
 	}
-	return sites, nil
+	if config.TunnelServer != nil {
+		server, err := validateTunnelServer(*config.TunnelServer)
+		if err != nil {
+			return nil, fmt.Errorf("tunnel_server: %w", err)
+		}
+		if domains[server.Domain] {
+			return nil, fmt.Errorf("tunnel_server: domain %s is also a site", server.Domain)
+		}
+		parsed.TunnelServer = server
+	}
+	if config.TunnelClient != nil {
+		client, err := validateTunnelClient(*config.TunnelClient)
+		if err != nil {
+			return nil, fmt.Errorf("tunnel_client: %w", err)
+		}
+		parsed.TunnelClient = client
+	}
+	return parsed, nil
+}
+
+// Domains are the domains the file claims on this proxy: its sites and the tunnel endpoint.
+func (f *ParsedFile) Domains() []string {
+	var domains []string
+	for _, site := range f.Sites {
+		domains = append(domains, site.Domains...)
+	}
+	if f.TunnelServer != nil {
+		domains = append(domains, f.TunnelServer.Domain)
+	}
+	return domains
 }
 
 func validateSite(config SiteConfig) (Site, error) {

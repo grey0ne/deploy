@@ -219,6 +219,10 @@ production it is built locally (`linux/amd64`) and pushed with the project image
 projects of one namespace share the balancer image. Bump `PROXY_VERSION` with every change of
 `proxy/`; `deployprod` then rolls the new version out (the balancer runs another image).
 
+The proxy can also expose chosen local dev sites on public domains of the production proxy
+through a tunnel the dev proxy keeps open (`tunnel_server` / `tunnel_client` sections, see
+`proxy/README.md`).
+
 ### Switching a server from nginx
 
 The balancer is shared by every project on the server, so `deployprod` does not switch it:

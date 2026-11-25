@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	var options Options
@@ -61,8 +61,8 @@ func runCheck(dir string) int {
 		return 1
 	}
 	sites := 0
-	for _, fileSites := range accepted {
-		sites += len(fileSites)
+	for _, file := range accepted {
+		sites += len(file.Sites)
 	}
 	fmt.Printf("config is valid: %d files, %d sites\n", len(accepted), sites)
 	return 0

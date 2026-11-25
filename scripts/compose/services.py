@@ -28,7 +28,7 @@ CENTRIFUGO_IMAGE = 'centrifugo/centrifugo:v6.10.2'
 # Production: built locally and pushed with the project images; the name has no project in it,
 # so every project of the registry namespace refers to the same balancer image. Bump the version
 # with every change of deploy/proxy: dev rebuilds only a missing tag, deployprod rolls out a new one.
-PROXY_VERSION = '0.1.0'
+PROXY_VERSION = '0.2.0'
 DEV_PROXY_IMAGE = f'deploy-proxy:{PROXY_VERSION}'
 PROXY_DIR = os.path.join(DEPLOY_DIR, 'proxy')
 PROD_BALANCER_DIR = '/app/balancer'

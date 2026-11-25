@@ -18,7 +18,9 @@ import (
 // Table is an immutable routing table built from the accepted config files; a reload builds a
 // new one and swaps it atomically, so requests in flight keep the table they started with.
 type Table struct {
-	hosts map[string]*siteHandler
+	hosts        map[string]*siteHandler
+	tunnelServer *TunnelServer
+	tunnelClient *TunnelClient
 }
 
 type siteHandler struct {
@@ -31,10 +33,16 @@ type routeHandler struct {
 	proxy *httputil.ReverseProxy
 }
 
-func buildTable(files map[string][]Site, transports *Transports) *Table {
+func buildTable(files map[string]*ParsedFile, transports *Transports) *Table {
 	table := &Table{hosts: map[string]*siteHandler{}}
-	for _, sites := range files {
-		for _, site := range sites {
+	for _, file := range files {
+		if file.TunnelServer != nil {
+			table.tunnelServer = file.TunnelServer
+		}
+		if file.TunnelClient != nil {
+			table.tunnelClient = file.TunnelClient
+		}
+		for _, site := range file.Sites {
 			handler := &siteHandler{Site: site}
 			for _, route := range site.Routes {
 				handler.routes = append(handler.routes, routeHandler{

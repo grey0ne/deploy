@@ -73,7 +73,7 @@ sites:
 }
 
 func TestParseFile(t *testing.T) {
-	sites, err := ParseFile([]byte(`
+	parsed, err := ParseFile([]byte(`
 sites:
   - domains: [Example.COM., www.example.com]
     tls: {cert: /c.crt, key: /c.key}
@@ -89,7 +89,7 @@ sites:
 	if err != nil {
 		t.Fatal(err)
 	}
-	site := sites[0]
+	site := parsed.Sites[0]
 	if site.Domains[0] != "example.com" || site.MaxBodySize != 50000*1024 || site.Compress {
 		t.Fatalf("unexpected site %+v", site)
 	}
@@ -101,7 +101,7 @@ sites:
 	}
 
 	empty, err := ParseFile(nil)
-	if err != nil || len(empty) != 0 {
+	if err != nil || len(empty.Sites) != 0 {
 		t.Fatalf("an empty file has no sites: %v %v", empty, err)
 	}
 }
@@ -146,7 +146,7 @@ func TestParseSize(t *testing.T) {
 }
 
 func TestMatch(t *testing.T) {
-	sites, err := ParseFile([]byte(`
+	parsed, err := ParseFile([]byte(`
 sites:
   - domains: [a.com]
     tls: {acme: true}
@@ -158,7 +158,7 @@ sites:
 	if err != nil {
 		t.Fatal(err)
 	}
-	site := buildTable(map[string][]Site{"a.yaml": sites}, NewTransports()).hosts["a.com"]
+	site := buildTable(map[string]*ParsedFile{"a.yaml": parsed}, NewTransports()).hosts["a.com"]
 	cases := map[string]string{
 		"/api":            "api",
 		"/api/":           "api",
@@ -202,7 +202,7 @@ func TestLoadDirIsolatesFiles(t *testing.T) {
 	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "previous version") {
 		t.Fatalf("errs %v", errs)
 	}
-	if next["b.yaml"][0].Domains[0] != "b.com" || next["a.yaml"] == nil {
+	if next["b.yaml"].Sites[0].Domains[0] != "b.com" || next["a.yaml"] == nil {
 		t.Fatalf("accepted %v", next)
 	}
 
@@ -218,7 +218,7 @@ func TestLoadDirIsolatesFiles(t *testing.T) {
 	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "a.com (in a.yaml)") {
 		t.Fatalf("errs %v", errs)
 	}
-	if next["a.yaml"][0].Routes[0].Upstream.Host != "a:1" || next["b.yaml"][0].Domains[0] != "b.com" {
+	if next["a.yaml"].Sites[0].Routes[0].Upstream.Host != "a:1" || next["b.yaml"].Sites[0].Domains[0] != "b.com" {
 		t.Fatalf("accepted %v", next)
 	}
 

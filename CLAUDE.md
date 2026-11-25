@@ -45,7 +45,7 @@ Creating a new project (skeleton, dev, production infrastructure, Sentry, first 
   - `proxy/configuration.py` — the project's proxy sites (dev: certificate files, prod: ACME) composed from the enabled components, one YAML file per project
   - `do_init.py` — DigitalOcean droplet / managed Postgres provisioning
   - `s3_*.py` — S3 backup/restore/bucket helpers
-- `proxy/` — the reverse proxy (Go, see `proxy/README.md`): TLS (Let's Encrypt via autocert or certificate files), routing by domain and path prefix, YAML site files of a directory, config and certificate changes applied without a restart. `go test ./...` in `proxy/` (also run by its Dockerfile). Bump `PROXY_VERSION` in `scripts/compose/services.py` with every change: dev rebuilds only a missing tag, production pushes `<registry>/<namespace>/deploy-proxy:<version>` and `deployprod` restarts the balancer when it runs another image.
+- `proxy/` — the reverse proxy (Go, see `proxy/README.md`): TLS (Let's Encrypt via autocert or certificate files), routing by domain and path prefix, YAML site files of a directory, config and certificate changes applied without a restart, a tunnel that exposes chosen local dev sites on public domains of the production proxy (`tunnel_server` / `tunnel_client`, yamux over one TLS connection). `go test ./...` in `proxy/` (also run by its Dockerfile). Bump `PROXY_VERSION` in `scripts/compose/services.py` with every change: dev rebuilds only a missing tag, production pushes `<registry>/<namespace>/deploy-proxy:<version>` and `deployprod` restarts the balancer when it runs another image.
 - `tests/` — `python3.15 -m unittest discover deploy/tests` from the project root (stdlib only; the proxy config test runs `go run` when Go is installed).
 
 ## Image versions
