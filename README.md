@@ -41,7 +41,7 @@ git submodule sync deploy
 
 | File | Purpose |
 |---|---|
-| `environment/env.base` | Shared project settings: `PROJECT_NAME`, `PROJECT_DOMAIN`, registry, `SSL_CERTS_DIR`, `NGINX_CONFIG_DIR` |
+| `environment/env.base` | Shared project settings: `PROJECT_NAME`, `PROJECT_DOMAIN`, registry |
 | `environment/env.dev` | Development secrets and overrides |
 | `environment/env.prod` | Production secrets |
 | `environment/version` | Release version, bumped by `deployprod` |
