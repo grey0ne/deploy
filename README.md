@@ -164,6 +164,11 @@ production commands load `env.base` + `env.prod` and never touch the dev files (
 last in both). Anything that is not a command below goes to `docker compose` with the dev compose
 file (`pc logs -f fastapi`, `pc run --rm -T nextjs npm ci`, …).
 
+The frontend production build is checked with `pc run --rm -T nextjs npm run build`. Do not set
+`NODE_ENV` in `env.dev`: Next.js sets it itself (`next dev` → `development`, `next build` →
+`production`), and an external `NODE_ENV=development` makes `next build` fail while prerendering
+`/_global-error` (`Cannot read properties of null (reading 'useContext')`).
+
 Development:
 
 | Command | What it does |

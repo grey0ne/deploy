@@ -124,7 +124,6 @@ DJANGO_WORKER_COUNT=2
 DJANGO_SECRET_KEY=<random, python -c "import secrets; print(secrets.token_urlsafe(50))">
 DJANGO_DEBUG=True
 PROJECT_DOMAIN=dev.<domain>
-NODE_ENV=development
 S3_DOMAIN=dev.<domain>
 S3_SIGNATURE_VERSION=s3v4
 S3_ENDPOINT_URL=http://<name>-minio:9000
