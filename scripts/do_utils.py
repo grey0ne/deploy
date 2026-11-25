@@ -1,7 +1,9 @@
+from collections.abc import Callable
 from typing import Any
 import time
 
 from scripts.http_request import request
+from scripts.dns_records import find_zone, plan_a_records, record_name
 from scripts.constants import (
     project_env, DO_API_DOMAIN, DROPLETS_URL, DROPLET_TAGS, PG_SIZE, PG_VERSION, PG_NODES_NUM,
     STATUS_CHECK_INTERVAL, get_do_headers
@@ -214,31 +216,64 @@ def add_pg_firewall_rule(cluster_id: str, droplet_id: str):
     print(f'Updating firewall data for PG cluster {cluster_id} to allow droplet {droplet_id}')
 
 
-def get_domain_records(domain: str):
-    url = f"{DO_API_DOMAIN}/v2/domains/{domain}/records?type=A"
-    response = do_get_request(url)
-    return response
+def list_domain_zones() -> list[str]:
+    """Names of the DNS zones of the account (the API pages them)."""
+    zones: list[str] = []
+    url: str | None = f"{DO_API_DOMAIN}/v2/domains?per_page=200"
+    while url:
+        data = do_get_request(url)
+        zones.extend(zone["name"] for zone in data["domains"])
+        url = data.get("links", {}).get("pages", {}).get("next")
+    return zones
 
-def create_or_update_domain_record(domain: str, droplet_ip: str):
-    record_data: dict[str, Any] = {
-        "type": "A",
-        "name": "@",
-        "data": droplet_ip,
-        "priority": None,
-        "port": None,
-        "ttl": 1800,
-        "weight": None,
-        "flags": None,
-        "tag": None
-    }
-    existing_records = get_domain_records(domain)
-    for record in existing_records["domain_records"]:
-        update_url = f"{DO_API_DOMAIN}/v2/domains/{domain}/records/{record['id']}"
-        print(f"DNS A record for {domain} pointing to {droplet_ip} already exists. Updating")
-        response = do_put_request(update_url, record_data)
-        return response['domain_record']
-    create_url = f"{DO_API_DOMAIN}/v2/domains/{domain}/records"
-    response = do_post_request(create_url, record_data)
-    print(f"DNS A record created for {domain} pointing to {droplet_ip}")
-    return response["domain_record"]
 
+def get_a_records(zone: str, domain: str) -> list[dict[str, Any]]:
+    """A records of exactly this domain (fully qualified) in the zone."""
+    url = f"{DO_API_DOMAIN}/v2/domains/{zone}/records?type=A&name={domain}&per_page=200"
+    return do_get_request(url)["domain_records"]
+
+
+def do_delete_request(url: str) -> None:
+    response = request(url=url, method="DELETE", headers=get_do_headers())
+    if response.status not in [204, 202, 200]:
+        raise DOException(f"DO request failed. URL {url} Status code: {response.status} Body: {response.body}")
+
+
+def _a_record_data(name: str, address: str) -> dict[str, Any]:
+    return {"type": "A", "name": name, "data": address, "ttl": 1800}
+
+
+def ensure_a_record(domain: str, address: str, ask: Callable[[str], str] = input) -> bool:
+    """Point the A record of the domain to the address in its DigitalOcean zone.
+
+    Only records of this exact name are touched; repointing a domain that resolves elsewhere is
+    confirmed first. False when the zone is not in the account or the user declined.
+    """
+    zone = find_zone(domain, list_domain_zones())
+    if zone is None:
+        print(f"DNS zone of {domain} is not in this DigitalOcean account: create the A record "
+              f"{domain} -> {address} at its DNS provider")
+        return False
+    name = record_name(domain, zone)
+    records_url = f"{DO_API_DOMAIN}/v2/domains/{zone}/records"
+    plan = plan_a_records(get_a_records(zone, domain), address)
+    if plan.action == 'keep':
+        print(f"DNS A record {domain} -> {address} is up to date")
+        return True
+    if plan.action == 'create':
+        do_post_request(records_url, _a_record_data(name, address))
+        print(f"DNS A record created: {domain} -> {address} (zone {zone})")
+        return True
+    current = ', '.join(sorted({plan.update["data"], *(record["data"] for record in plan.delete)}))
+    try:
+        answer = ask(f"{domain} points to {current}. Point it to {address}? [y/N]: ").strip().lower()
+    except EOFError:
+        answer = ''
+    if answer not in ('y', 'yes'):
+        print(f"DNS A record of {domain} is not changed")
+        return False
+    do_put_request(f"{records_url}/{plan.update['id']}", _a_record_data(name, address))
+    for record in plan.delete:
+        do_delete_request(f"{records_url}/{record['id']}")
+    print(f"DNS A record updated: {domain} -> {address} (zone {zone})")
+    return True

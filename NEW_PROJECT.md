@@ -191,7 +191,10 @@ the database is `DATABASE_NAME`, default `<name>`). Before creating anything it 
 of the account and asks which one to deploy to (default: `DO_DROPLET_NAME`, otherwise the droplet
 the domain already points to) or offers a new droplet from the template (`<name>-app` or another
 name, `DO_SIZE`, `DO_REGION`, `DO_DROPLET_OS_IMAGE`; needs `DO_KEY_FINGERPRINT`, confirmed
-separately). It writes `DO_DROPLET_NAME`, `DATABASE_NAME`, `DATABASE_HOST`, `DATABASE_PORT` and,
+separately). DNS: the A record of `PROJECT_DOMAIN` goes into the most specific zone of the account
+(`ap.grey.one` → record `ap` in `grey.one`); only records of that name are touched, an existing one
+that points elsewhere is repointed only after a confirmation, and a zone outside DigitalOcean is
+reported (create the record at its DNS provider). It writes `DO_DROPLET_NAME`, `DATABASE_NAME`, `DATABASE_HOST`, `DATABASE_PORT` and,
 for a new user, `DATABASE_PASSWORD` into `env.prod`. It is interactive: the user runs it.
 Confirm with the user before running it: it creates paid resources.
 

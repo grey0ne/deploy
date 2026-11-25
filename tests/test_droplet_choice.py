@@ -110,7 +110,7 @@ class InitInfraTest(unittest.TestCase):
             name: mock.patch.object(do_init, name).start()
             for name in (
                 'list_droplets', 'choose_droplet', 'save_env_option', 'get_or_create_project',
-                'get_or_create_droplet', 'create_or_update_domain_record', 'get_or_create_pg_cluster',
+                'get_or_create_droplet', 'ensure_a_record', 'get_or_create_pg_cluster',
                 'get_or_create_pg_user', 'get_or_create_pg_database', 'add_pg_firewall_rule', '_resolve',
             )
         }
@@ -130,7 +130,7 @@ class InitInfraTest(unittest.TestCase):
         mocks = self.run_init(Choice(DROPLETS[0], 'web'))
         mocks['get_or_create_droplet'].assert_not_called()
         mocks['save_env_option'].assert_any_call('DO_DROPLET_NAME', 'web')
-        mocks['create_or_update_domain_record'].assert_called_once_with('demo.example.com', '1.1.1.1')
+        mocks['ensure_a_record'].assert_called_once_with('demo.example.com', '1.1.1.1')
         mocks['add_pg_firewall_rule'].assert_called_once_with('c1', 1)
 
     def test_new_droplet_is_created(self) -> None:
@@ -141,7 +141,7 @@ class InitInfraTest(unittest.TestCase):
     def test_new_droplet_without_ssh_key_stops_before_changes(self) -> None:
         mocks = self.run_init(Choice(None, 'demo-app'), fingerprint='')
         for name in ('save_env_option', 'get_or_create_project', 'get_or_create_droplet',
-                     'create_or_update_domain_record', 'get_or_create_pg_cluster'):
+                     'ensure_a_record', 'get_or_create_pg_cluster'):
             mocks[name].assert_not_called()
 
     def test_database_settings_are_written(self) -> None:

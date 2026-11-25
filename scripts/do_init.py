@@ -3,7 +3,7 @@ import socket
 
 from scripts.do_utils import (
     get_or_create_droplet, get_or_create_project, get_public_address, list_droplets,
-    create_or_update_domain_record,
+    ensure_a_record,
     get_or_create_pg_cluster, get_existing_pg_cluster,
     get_or_create_pg_user, get_or_create_pg_database, add_pg_firewall_rule,
     DOException
@@ -56,8 +56,8 @@ def init_do_infra():
     public_address = get_public_address(droplet_data)
     if public_address is None:
         raise DOException(f"Active droplet {choice.name} doesn't have public address, aborting")
-    print(f"Creating DNS record for droplet {choice.name} with IP {public_address}")
-    create_or_update_domain_record(project_env.project_domain, public_address)
+    print(f"DNS record for droplet {choice.name} with IP {public_address}")
+    ensure_a_record(project_env.project_domain, public_address)
     pg_cluster = get_or_create_pg_cluster(project_env.pg_cluster_name, project_data["id"])
     cluster_status = pg_cluster['status']
     cluster_id = pg_cluster['id']
