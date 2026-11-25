@@ -108,7 +108,10 @@ COMMANDS: tuple[Command, ...] = (
     # Production
     command('deployprod deploy', 'Build, push and deploy the production stack (migrations, proxy config)',
             'scripts.deploy_production:deploy_production', group='Production', env='prod', takes_args=False),
-    command('certprod', 'Check that the production domains serve valid certificates (the proxy issues them)',
+    command('removeprod', 'Remove the project runtime from the server (stack, proxy sites, env files, images); '
+            'keeps the database, S3 and backend_data: dc removeprod [--yes]',
+            'scripts.remove_production:remove_production', group='Production', env='prod'),
+    command('certprod','Check that the production domains serve valid certificates (the proxy issues them)',
             f'{OPS}:check_prod_https', group='Production', env='prod', takes_args=False),
     command('initprod prod_setup production_setup', 'Set up Docker and the balancer on the server',
             f'{OPS}:production_setup', group='Production', env='prod', takes_args=False),

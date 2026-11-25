@@ -198,6 +198,7 @@ Production:
 | Command | What it does |
 |---|---|
 | `deployprod` | Bump the version, build and push images of enabled components and of the proxy (`linux/amd64`), render the Swarm compose, migrate each backend, update the stack, upload the proxy config (validated on the server) and wait until every domain serves a valid certificate. A new `PROXY_VERSION` is rolled out first. |
+| `removeprod [--yes]` | Remove the project runtime from the server: the proxy sites (the domains stop being served), the Swarm stack, `prod.yml` and the env files of `/app/<project>`, the project images. The database, S3, `/app/<project>/backend_data`, the shared balancer and the images in the registry are kept, so `deployprod` brings the project back. Asks for the project name unless `--yes`. |
 | `certprod` | Check that every production domain serves a valid certificate (the proxy issues and renews them). |
 | `initprod`, `deploybalancer` | Set up Docker and the balancer on the server; build and push the proxy image, (re)start the production proxy. |
 | `djangoprod …`, `fastapiprod …` | One-off command in the production image (`manage.py …` / the given command). |
