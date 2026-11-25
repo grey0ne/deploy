@@ -188,7 +188,8 @@ New project on the existing server (the usual case):
 `pc initinfra` automates DNS + database + firewall, but by default creates a new droplet
 `<name>-app`. To reuse the existing server set in `env.prod`: `DO_TOKEN`, `DO_DROPLET_NAME=<existing
 droplet name>`, `DATABASE_USER=<cluster admin user>` (`PG_CLUSTER_NAME` defaults to
-`communal-db`). It writes `DATABASE_HOST` and, for a new user, `DATABASE_PASSWORD` into `env.prod`.
+`communal-db`; the database is `DATABASE_NAME`, default `<name>`). It writes `DATABASE_NAME`,
+`DATABASE_HOST`, `DATABASE_PORT` and, for a new user, `DATABASE_PASSWORD` into `env.prod`.
 Confirm with the user before running it: it creates paid resources.
 
 A project on a new dedicated server: `initinfra` (droplet, DNS, database), then `initprod`
